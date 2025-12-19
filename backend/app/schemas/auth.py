@@ -31,7 +31,6 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     full_name: Optional[str] = None
-    department_id: Optional[int] = None
 
 
 class UserBase(BaseModel):
@@ -40,7 +39,6 @@ class UserBase(BaseModel):
     email: EmailStr
     full_name: Optional[str] = None
     role: UserRoleEnum = UserRoleEnum.USER
-    department_id: Optional[int] = None
     position: Optional[str] = None
     phone: Optional[str] = None
     is_active: bool = True
@@ -56,7 +54,6 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     full_name: Optional[str] = None
     role: Optional[UserRoleEnum] = None
-    department_id: Optional[int] = None
     position: Optional[str] = None
     phone: Optional[str] = None
     is_active: Optional[bool] = None

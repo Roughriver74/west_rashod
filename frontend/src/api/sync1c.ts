@@ -16,7 +16,6 @@ export const testConnection = async () => {
 }
 
 export const syncTransactions = async (data: {
-  department_id: number
   date_from?: string
   date_to?: string
   auto_classify?: boolean
@@ -25,16 +24,12 @@ export const syncTransactions = async (data: {
   return response.data
 }
 
-export const syncOrganizations = async (data: {
-  department_id: number
-}): Promise<Sync1CResult> => {
-  const response = await apiClient.post(`/sync-1c/organizations/sync?department_id=${data.department_id}`)
+export const syncOrganizations = async (_data: object = {}): Promise<Sync1CResult> => {
+  const response = await apiClient.post('/sync-1c/organizations/sync')
   return response.data
 }
 
-export const syncCategories = async (data: {
-  department_id: number
-}): Promise<Sync1CResult> => {
-  const response = await apiClient.post(`/sync-1c/categories/sync?department_id=${data.department_id}`)
+export const syncCategories = async (_data: object = {}): Promise<Sync1CResult> => {
+  const response = await apiClient.post('/sync-1c/categories/sync')
   return response.data
 }

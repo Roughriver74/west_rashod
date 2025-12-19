@@ -1,4 +1,4 @@
-import { Layout, Menu, Select, Typography, Avatar, Dropdown, Space } from 'antd'
+import { Layout, Menu, Typography, Avatar, Dropdown, Space } from 'antd'
 import {
   BankOutlined,
   DashboardOutlined,
@@ -12,7 +12,6 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom'
 import { ReactNode } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { useDepartment } from '../contexts/DepartmentContext'
 
 const { Header, Sider, Content } = Layout
 const { Text } = Typography
@@ -25,7 +24,6 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuth()
-  const { departments, selectedDepartment, setSelectedDepartment } = useDepartment()
 
   const menuItems = [
     {
@@ -94,24 +92,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
             background: '#fff',
             padding: '0 24px',
             display: 'flex',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-end',
             alignItems: 'center',
             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
           }}
         >
-          <Select
-            style={{ width: 250 }}
-            placeholder="Выберите отдел"
-            value={selectedDepartment?.id}
-            onChange={(value) => {
-              const dept = departments.find((d) => d.id === value)
-              setSelectedDepartment(dept || null)
-            }}
-            options={departments.map((d) => ({
-              value: d.id,
-              label: d.name,
-            }))}
-          />
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
             <Space style={{ cursor: 'pointer' }}>
               <Avatar icon={<UserOutlined />} />

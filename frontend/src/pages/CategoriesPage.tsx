@@ -29,12 +29,10 @@ import {
   deleteCategory,
   Category,
 } from '../api/categories'
-import { useDepartment } from '../contexts/DepartmentContext'
 
 const { Title } = Typography
 
 export default function CategoriesPage() {
-  const { selectedDepartment } = useDepartment()
   const queryClient = useQueryClient()
   const [searchText, setSearchText] = useState('')
   const [typeFilter, setTypeFilter] = useState<string | undefined>()
@@ -44,9 +42,8 @@ export default function CategoriesPage() {
 
   // Fetch categories
   const { data: categories = [], isLoading } = useQuery({
-    queryKey: ['categories', selectedDepartment?.id],
-    queryFn: () => getCategories({ department_id: selectedDepartment?.id }),
-    enabled: !!selectedDepartment,
+    queryKey: ['categories'],
+    queryFn: () => getCategories({}),
   })
 
   // Create mutation
@@ -91,16 +88,11 @@ export default function CategoriesPage() {
     },
   })
 
-  const handleSubmit = (values: any) => {
-    const data = {
-      ...values,
-      department_id: selectedDepartment?.id,
-    }
-
+  const handleSubmit = (values: unknown) => {
     if (editingCategory) {
-      updateMutation.mutate({ id: editingCategory.id, data })
+      updateMutation.mutate({ id: editingCategory.id, data: values as Partial<Category> })
     } else {
-      createMutation.mutate(data)
+      createMutation.mutate(values as Category)
     }
   }
 

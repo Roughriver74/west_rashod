@@ -74,34 +74,6 @@ class DocumentTypeEnum(str, enum.Enum):
 
 # ============== MODELS ==============
 
-class Department(Base):
-    """Department model for multi-tenancy."""
-    __tablename__ = "departments"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), unique=True, nullable=False)
-    code = Column(String(50), unique=True, nullable=False)
-    description = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False, index=True)
-
-    # Hierarchy
-    parent_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
-    hierarchy_path = Column(String(1024), default="")
-    hierarchy_level = Column(Integer, default=0)
-
-    # Additional info
-    region = Column(String(50), nullable=True)
-
-    # Timestamps
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-
-    # Relationships
-    parent = relationship("Department", remote_side=[id], backref="children")
-    users = relationship("User", back_populates="department_rel")
-    bank_transactions = relationship("BankTransaction", back_populates="department_rel")
-
-
 class Organization(Base):
     """Organization model."""
     __tablename__ = "organizations"
@@ -124,9 +96,6 @@ class Organization(Base):
     status_1c = Column(String(50), nullable=True)
     synced_at = Column(DateTime, nullable=True)
 
-    # Multi-tenancy
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
-
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -146,9 +115,6 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     role = Column(Enum(UserRoleEnum), default=UserRoleEnum.USER, nullable=False)
 
-    # Department (multi-tenancy)
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
-
     # Status
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     is_verified = Column(Boolean, default=False, nullable=False)
@@ -163,7 +129,6 @@ class User(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    department_rel = relationship("Department", back_populates="users")
     reviewed_transactions = relationship("BankTransaction", back_populates="reviewed_by_rel",
                                          foreign_keys="BankTransaction.reviewed_by")
 
@@ -181,9 +146,6 @@ class BudgetCategory(Base):
     # Hierarchy
     parent_id = Column(Integer, ForeignKey("budget_categories.id"), nullable=True)
 
-    # Multi-tenancy
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
-
     # 1C Integration
     external_id_1c = Column(String(100), nullable=True, index=True)
     code_1c = Column(String(50), nullable=True)
@@ -200,11 +162,6 @@ class BudgetCategory(Base):
                                      foreign_keys="BankTransaction.category_id")
     suggested_transactions = relationship("BankTransaction", back_populates="suggested_category_rel",
                                           foreign_keys="BankTransaction.suggested_category_id")
-
-    # Composite index
-    __table_args__ = (
-        Index('idx_budget_category_dept_active', 'department_id', 'is_active'),
-    )
 
 
 class Contractor(Base):
@@ -225,17 +182,9 @@ class Contractor(Base):
     # 1C Integration
     external_id_1c = Column(String(100), nullable=True, index=True)
 
-    # Multi-tenancy
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False, index=True)
-
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-
-    # Composite index
-    __table_args__ = (
-        Index('idx_contractor_dept_active', 'department_id', 'is_active'),
-    )
 
 
 class BankTransaction(Base):
@@ -308,9 +257,6 @@ class BankTransaction(Base):
     reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
 
-    # Multi-tenancy
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False, index=True)
-
     # Import tracking
     import_source = Column(String(50), nullable=True)  # ODATA_1C, MANUAL_UPLOAD, API
     import_file_name = Column(String(255), nullable=True)
@@ -325,7 +271,6 @@ class BankTransaction(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    department_rel = relationship("Department", back_populates="bank_transactions")
     organization_rel = relationship("Organization", back_populates="bank_transactions")
     category_rel = relationship("BudgetCategory", back_populates="bank_transactions",
                                foreign_keys=[category_id])
@@ -350,9 +295,6 @@ class BusinessOperationMapping(Base):
     # Notes
     notes = Column(Text, nullable=True)
 
-    # Multi-tenancy
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False, index=True)
-
     # Status
     is_active = Column(Boolean, default=True, nullable=False, index=True)
 
@@ -363,10 +305,9 @@ class BusinessOperationMapping(Base):
 
     # Relationships
     category_rel = relationship("BudgetCategory")
-    department_rel = relationship("Department")
     created_by_user = relationship("User")
 
     # Unique constraint
     __table_args__ = (
-        Index('ix_business_op_mapping_unique', 'business_operation', 'department_id', 'category_id', unique=True),
+        Index('ix_business_op_mapping_unique', 'business_operation', 'category_id', unique=True),
     )

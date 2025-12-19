@@ -86,7 +86,6 @@ def register(
         email=user_data.email,
         full_name=user_data.full_name,
         hashed_password=get_password_hash(user_data.password),
-        department_id=user_data.department_id,
         role=UserRoleEnum.USER,
         is_active=True,
     )
@@ -119,10 +118,9 @@ def update_current_user(
     if "password" in update_data:
         update_data["hashed_password"] = get_password_hash(update_data.pop("password"))
 
-    # Prevent role/department change by self (only admin can do this)
+    # Prevent role change by self (only admin can do this)
     if current_user.role != UserRoleEnum.ADMIN:
         update_data.pop("role", None)
-        update_data.pop("department_id", None)
         update_data.pop("is_active", None)
 
     for field, value in update_data.items():

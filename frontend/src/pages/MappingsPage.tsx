@@ -29,7 +29,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ColumnsType } from 'antd/es/table'
 import apiClient from '../api/client'
 import { getCategories, Category } from '../api/categories'
-import { useDepartment } from '../contexts/DepartmentContext'
 
 const { Title } = Typography
 
@@ -72,7 +71,6 @@ const bulkDeactivate = async (ids: number[]) => {
 }
 
 export default function MappingsPage() {
-  const { selectedDepartment } = useDepartment()
   const queryClient = useQueryClient()
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState<boolean | undefined>()
@@ -83,16 +81,16 @@ export default function MappingsPage() {
 
   // Fetch mappings
   const { data: mappings = [], isLoading } = useQuery({
-    queryKey: ['business-operation-mappings', selectedDepartment?.id],
-    queryFn: () => getMappings({ department_id: selectedDepartment?.id }),
-    enabled: !!selectedDepartment,
+    queryKey: ['business-operation-mappings', undefined],
+    queryFn: () => getMappings({ department_id: undefined }),
+    
   })
 
   // Fetch categories for dropdown
   const { data: categories = [] } = useQuery({
-    queryKey: ['categories', selectedDepartment?.id],
-    queryFn: () => getCategories({ department_id: selectedDepartment?.id, is_active: true }),
-    enabled: !!selectedDepartment,
+    queryKey: ['categories'],
+    queryFn: () => getCategories({  is_active: true }),
+    
   })
 
   // Create mutation
@@ -160,7 +158,7 @@ export default function MappingsPage() {
   const handleSubmit = (values: any) => {
     const data = {
       ...values,
-      department_id: selectedDepartment?.id,
+      
     }
 
     if (editingMapping) {

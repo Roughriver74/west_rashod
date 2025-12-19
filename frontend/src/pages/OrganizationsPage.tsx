@@ -24,7 +24,6 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ColumnsType } from 'antd/es/table'
 import apiClient from '../api/client'
-import { useDepartment } from '../contexts/DepartmentContext'
 
 const { Title } = Typography
 
@@ -61,7 +60,6 @@ const deleteOrganization = async (id: number) => {
 }
 
 export default function OrganizationsPage() {
-  const { selectedDepartment } = useDepartment()
   const queryClient = useQueryClient()
   const [searchText, setSearchText] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -70,9 +68,9 @@ export default function OrganizationsPage() {
 
   // Fetch organizations
   const { data: organizations = [], isLoading } = useQuery({
-    queryKey: ['organizations', selectedDepartment?.id],
-    queryFn: () => getOrganizations({ department_id: selectedDepartment?.id }),
-    enabled: !!selectedDepartment,
+    queryKey: ['organizations'],
+    queryFn: () => getOrganizations({ department_id: undefined }),
+    
   })
 
   // Create mutation
@@ -120,7 +118,7 @@ export default function OrganizationsPage() {
   const handleSubmit = (values: any) => {
     const data = {
       ...values,
-      department_id: selectedDepartment?.id,
+      
     }
 
     if (editingOrg) {

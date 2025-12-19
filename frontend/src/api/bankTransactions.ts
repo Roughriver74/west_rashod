@@ -13,7 +13,6 @@ export interface BankTransaction {
   organization_id: number | null
   organization_name: string | null
   status: string
-  department_id: number
   created_at: string
 }
 
@@ -29,7 +28,6 @@ export interface BankTransactionStats {
 }
 
 export interface TransactionFilters {
-  department_id?: number
   status?: string
   transaction_type?: string
   date_from?: string
@@ -46,7 +44,7 @@ export const getBankTransactions = async (filters: TransactionFilters): Promise<
   return response.data
 }
 
-export const getTransactionStats = async (params: { department_id?: number }): Promise<BankTransactionStats> => {
+export const getTransactionStats = async (params: object = {}): Promise<BankTransactionStats> => {
   const response = await apiClient.get('/bank-transactions/stats', { params })
   return response.data
 }
@@ -71,10 +69,10 @@ export const getCategorySuggestions = async (id: number) => {
   return response.data
 }
 
-export const importFromExcel = async (file: File, departmentId: number) => {
+export const importFromExcel = async (file: File) => {
   const formData = new FormData()
   formData.append('file', file)
-  const response = await apiClient.post(`/bank-transactions/import?department_id=${departmentId}`, formData, {
+  const response = await apiClient.post('/bank-transactions/import', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
   return response.data

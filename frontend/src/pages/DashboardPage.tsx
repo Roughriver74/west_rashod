@@ -9,17 +9,13 @@ import {
 } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { getTransactionStats } from '../api/bankTransactions'
-import { useDepartment } from '../contexts/DepartmentContext'
 
 const { Title } = Typography
 
 export default function DashboardPage() {
-  const { selectedDepartment } = useDepartment()
-
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['transaction-stats', selectedDepartment?.id],
-    queryFn: () => getTransactionStats({ department_id: selectedDepartment?.id }),
-    enabled: !!selectedDepartment,
+    queryKey: ['transaction-stats'],
+    queryFn: () => getTransactionStats({}),
   })
 
   return (

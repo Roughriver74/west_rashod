@@ -31,8 +31,6 @@ import {
   importFromExcel,
   bulkStatusUpdate,
 } from '../api/bankTransactions'
-import { getCategories, Category } from '../api/categories'
-import { useDepartment } from '../contexts/DepartmentContext'
 
 const { Title } = Typography
 const { RangePicker } = DatePicker
@@ -54,7 +52,6 @@ const statusLabels: Record<string, string> = {
 }
 
 export default function BankTransactionsPage() {
-  const { selectedDepartment } = useDepartment()
   const queryClient = useQueryClient()
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([])
   const [filters, setFilters] = useState<TransactionFilters>({
@@ -63,25 +60,13 @@ export default function BankTransactionsPage() {
 
   // Fetch transactions
   const { data: transactions = [], isLoading } = useQuery({
-    queryKey: ['bank-transactions', selectedDepartment?.id, filters],
-    queryFn: () =>
-      getBankTransactions({
-        ...filters,
-        department_id: selectedDepartment?.id,
-      }),
-    enabled: !!selectedDepartment,
-  })
-
-  // Fetch categories
-  const { data: categories = [] } = useQuery({
-    queryKey: ['categories', selectedDepartment?.id],
-    queryFn: () => getCategories({ department_id: selectedDepartment?.id, is_active: true }),
-    enabled: !!selectedDepartment,
+    queryKey: ['bank-transactions', filters],
+    queryFn: () => getBankTransactions(filters),
   })
 
   // Import mutation
   const importMutation = useMutation({
-    mutationFn: (file: File) => importFromExcel(file, selectedDepartment!.id),
+    mutationFn: (file: File) => importFromExcel(file),
     onSuccess: (data) => {
       message.success(`Импортировано: ${data.imported}, пропущено: ${data.skipped}`)
       queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })

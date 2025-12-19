@@ -156,7 +156,21 @@ west_rashod/
 
 ## Как запустить
 
-### Разработка
+### Быстрый старт (рекомендуется)
+
+```bash
+# Запустить всё одной командой
+./start-dev.sh
+
+# Или отдельные компоненты:
+./start-dev.sh db        # Только PostgreSQL
+./start-dev.sh backend   # Только Backend
+./start-dev.sh frontend  # Только Frontend
+./start-dev.sh stop      # Остановить всё
+./start-dev.sh reset     # Сбросить базу данных
+```
+
+### Ручной запуск
 
 ```bash
 # 1. Запустить PostgreSQL

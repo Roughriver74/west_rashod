@@ -2,9 +2,11 @@
 West Rashod - Bank Transactions Microservice
 FastAPI application entry point
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+import traceback
 
 from app.core.config import settings
 from app.db.session import engine
@@ -17,7 +19,6 @@ from app.api.v1.business_operation_mappings import router as mappings_router
 from app.api.v1.categories import router as categories_router
 from app.api.v1.organizations import router as organizations_router
 from app.api.v1.contractors import router as contractors_router
-from app.api.v1.departments import router as departments_router
 from app.api.v1.users import router as users_router
 from app.api.v1.sync_1c import router as sync_1c_router
 
@@ -53,6 +54,23 @@ app.add_middleware(
 )
 
 
+# Global exception handler to ensure CORS headers are always present
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Handle all unhandled exceptions with proper CORS headers."""
+    if settings.DEBUG:
+        print(f"Unhandled exception: {exc}")
+        traceback.print_exc()
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            "error": str(exc) if settings.DEBUG else "An error occurred"
+        }
+    )
+
+
 # Health check
 @app.get("/health")
 def health_check():
@@ -81,7 +99,6 @@ app.include_router(mappings_router, prefix=settings.API_PREFIX)
 app.include_router(categories_router, prefix=settings.API_PREFIX)
 app.include_router(organizations_router, prefix=settings.API_PREFIX)
 app.include_router(contractors_router, prefix=settings.API_PREFIX)
-app.include_router(departments_router, prefix=settings.API_PREFIX)
 app.include_router(users_router, prefix=settings.API_PREFIX)
 app.include_router(sync_1c_router, prefix=settings.API_PREFIX)
 

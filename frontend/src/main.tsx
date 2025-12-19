@@ -9,7 +9,6 @@ import 'dayjs/locale/ru'
 
 import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
-import { DepartmentProvider } from './contexts/DepartmentContext'
 
 import './index.css'
 
@@ -31,9 +30,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <QueryClientProvider client={queryClient}>
         <ConfigProvider locale={ruRU}>
           <AuthProvider>
-            <DepartmentProvider>
-              <App />
-            </DepartmentProvider>
+            <App />
           </AuthProvider>
         </ConfigProvider>
       </QueryClientProvider>

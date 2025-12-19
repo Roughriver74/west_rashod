@@ -8,13 +8,11 @@ import {
   DatePicker,
   Row,
   Col,
-  Statistic,
   Alert,
   Spin,
   Descriptions,
   Tag,
   Divider,
-  Result,
 } from 'antd'
 import {
   SyncOutlined,
@@ -34,13 +32,11 @@ import {
   syncCategories,
   Sync1CResult,
 } from '../api/sync1c'
-import { useDepartment } from '../contexts/DepartmentContext'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
 
 export default function Sync1CPage() {
-  const { selectedDepartment } = useDepartment()
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>([
     dayjs().startOf('month'),
     dayjs(),
@@ -48,7 +44,7 @@ export default function Sync1CPage() {
   const [connectionStatus, setConnectionStatus] = useState<{
     success: boolean
     message: string
-    server_info?: any
+    server_info?: unknown
   } | null>(null)
   const [syncResults, setSyncResults] = useState<{
     transactions?: Sync1CResult
@@ -76,11 +72,10 @@ export default function Sync1CPage() {
   // Sync transactions mutation
   const syncTransactionsMutation = useMutation({
     mutationFn: () => {
-      if (!selectedDepartment || !dateRange) {
-        throw new Error('Выберите отдел и период')
+      if (!dateRange) {
+        throw new Error('Выберите период')
       }
       return syncTransactions({
-        department_id: selectedDepartment.id,
         date_from: dateRange[0].format('YYYY-MM-DDTHH:mm:ss'),
         date_to: dateRange[1].format('YYYY-MM-DDTHH:mm:ss'),
       })
@@ -89,41 +84,31 @@ export default function Sync1CPage() {
       setSyncResults((prev) => ({ ...prev, transactions: data }))
       message.success(`Синхронизировано: ${data.created} создано, ${data.updated} обновлено`)
     },
-    onError: (error: any) => {
+    onError: (error: Error & { response?: { data?: { detail?: string } } }) => {
       message.error(error.response?.data?.detail || 'Ошибка синхронизации транзакций')
     },
   })
 
   // Sync organizations mutation
   const syncOrganizationsMutation = useMutation({
-    mutationFn: () => {
-      if (!selectedDepartment) {
-        throw new Error('Выберите отдел')
-      }
-      return syncOrganizations({ department_id: selectedDepartment.id })
-    },
+    mutationFn: () => syncOrganizations({}),
     onSuccess: (data) => {
       setSyncResults((prev) => ({ ...prev, organizations: data }))
       message.success(`Организации: ${data.created} создано, ${data.updated} обновлено`)
     },
-    onError: (error: any) => {
+    onError: (error: Error & { response?: { data?: { detail?: string } } }) => {
       message.error(error.response?.data?.detail || 'Ошибка синхронизации организаций')
     },
   })
 
   // Sync categories mutation
   const syncCategoriesMutation = useMutation({
-    mutationFn: () => {
-      if (!selectedDepartment) {
-        throw new Error('Выберите отдел')
-      }
-      return syncCategories({ department_id: selectedDepartment.id })
-    },
+    mutationFn: () => syncCategories({}),
     onSuccess: (data) => {
       setSyncResults((prev) => ({ ...prev, categories: data }))
       message.success(`Категории: ${data.created} создано, ${data.updated} обновлено`)
     },
-    onError: (error: any) => {
+    onError: (error: Error & { response?: { data?: { detail?: string } } }) => {
       message.error(error.response?.data?.detail || 'Ошибка синхронизации категорий')
     },
   })
@@ -170,16 +155,6 @@ export default function Sync1CPage() {
           )}
         </Descriptions>
       </Card>
-    )
-  }
-
-  if (!selectedDepartment) {
-    return (
-      <Result
-        status="warning"
-        title="Выберите отдел"
-        subTitle="Для синхронизации с 1С необходимо выбрать отдел в шапке страницы"
-      />
     )
   }
 
