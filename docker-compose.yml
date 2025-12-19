@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: west_rashod_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rashod_user
+      POSTGRES_PASSWORD: rashod_pass
+      POSTGRES_DB: west_rashod_db
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "54330:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rashod_user -d west_rashod_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: west_rashod_redis
+    restart: unless-stopped
+    ports:
+      - "6382:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: west_rashod_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://rashod_user:rashod_pass@db:5432/west_rashod_db
+      DEBUG: "True"
+      SECRET_KEY: "west-rashod-secret-key-change-in-production-min-32-chars"
+      CORS_ORIGINS: '["http://localhost:5178","http://localhost:3000"]'
+      USE_REDIS: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8005:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: west_rashod_frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:8005
+    ports:
+      - "5178:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    command: npm run dev -- --host
+
+volumes:
+  postgres_data:
+  redis_data:
