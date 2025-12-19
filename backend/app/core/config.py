@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # CORS
-    CORS_ORIGINS: str = '["http://localhost:5174","http://localhost:3000"]'
+    CORS_ORIGINS: str = '["http://localhost:5178","http://localhost:5174","http://localhost:3000","http://127.0.0.1:5178"]'
 
     @property
     def cors_origins_list(self) -> List[str]:
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
         try:
             return json.loads(self.CORS_ORIGINS)
         except:
-            return ["http://localhost:5174", "http://localhost:3000"]
+            return ["http://localhost:5178", "http://localhost:5174", "http://localhost:3000"]
 
     # 1C OData Integration
     ODATA_1C_URL: str = "http://10.10.100.77/trade/odata/standard.odata"
