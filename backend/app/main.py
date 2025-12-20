@@ -2,6 +2,7 @@
 West Rashod - Bank Transactions Microservice
 FastAPI application entry point
 """
+import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -9,6 +10,16 @@ from contextlib import asynccontextmanager
 import traceback
 
 from app.core.config import settings
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 from app.db.session import engine
 from app.db.models import Base
 

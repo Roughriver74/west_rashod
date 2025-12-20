@@ -18,7 +18,6 @@ router = APIRouter(prefix="/contractors", tags=["Contractors"])
 def get_contractors(
     skip: int = 0,
     limit: int = 100,
-    department_id: Optional[int] = None,
     is_active: Optional[bool] = None,
     search: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
@@ -26,12 +25,6 @@ def get_contractors(
 ):
     """Get all contractors."""
     query = db.query(Contractor)
-
-    # Filter by department
-    if current_user.role == UserRoleEnum.USER:
-        query = query.filter(Contractor.department_id == current_user.department_id)
-    elif department_id:
-        query = query.filter(Contractor.department_id == department_id)
 
     if is_active is not None:
         query = query.filter(Contractor.is_active == is_active)

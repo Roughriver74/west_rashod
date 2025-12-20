@@ -14,7 +14,6 @@ class ContractorBase(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     contact_info: Optional[str] = None
-    department_id: int
     is_active: bool = True
 
 
@@ -33,7 +32,6 @@ class ContractorUpdate(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     contact_info: Optional[str] = None
-    department_id: Optional[int] = None
     is_active: Optional[bool] = None
 
 

@@ -31,6 +31,7 @@ import {
   syncOrganizations,
   syncCategories,
   Sync1CResult,
+  getResultStats,
 } from '../api/sync1c'
 
 const { Title, Text } = Typography
@@ -69,6 +70,15 @@ export default function Sync1CPage() {
     },
   })
 
+  // Helper to extract error message from API response
+  const getErrorMessage = (error: unknown, fallback: string): string => {
+    const err = error as Error & { response?: { data?: { detail?: string | Array<{msg: string}> } } }
+    const detail = err.response?.data?.detail
+    if (typeof detail === 'string') return detail
+    if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg
+    return fallback
+  }
+
   // Sync transactions mutation
   const syncTransactionsMutation = useMutation({
     mutationFn: () => {
@@ -82,10 +92,11 @@ export default function Sync1CPage() {
     },
     onSuccess: (data) => {
       setSyncResults((prev) => ({ ...prev, transactions: data }))
-      message.success(`Синхронизировано: ${data.created} создано, ${data.updated} обновлено`)
+      const stats = getResultStats(data)
+      message.success(`Синхронизировано: ${stats.created} создано, ${stats.updated} обновлено`)
     },
-    onError: (error: Error & { response?: { data?: { detail?: string } } }) => {
-      message.error(error.response?.data?.detail || 'Ошибка синхронизации транзакций')
+    onError: (error: unknown) => {
+      message.error(getErrorMessage(error, 'Ошибка синхронизации транзакций'))
     },
   })
 
@@ -94,10 +105,11 @@ export default function Sync1CPage() {
     mutationFn: () => syncOrganizations({}),
     onSuccess: (data) => {
       setSyncResults((prev) => ({ ...prev, organizations: data }))
-      message.success(`Организации: ${data.created} создано, ${data.updated} обновлено`)
+      const stats = getResultStats(data)
+      message.success(`Организации: ${stats.created} создано, ${stats.updated} обновлено`)
     },
-    onError: (error: Error & { response?: { data?: { detail?: string } } }) => {
-      message.error(error.response?.data?.detail || 'Ошибка синхронизации организаций')
+    onError: (error: unknown) => {
+      message.error(getErrorMessage(error, 'Ошибка синхронизации организаций'))
     },
   })
 
@@ -106,10 +118,11 @@ export default function Sync1CPage() {
     mutationFn: () => syncCategories({}),
     onSuccess: (data) => {
       setSyncResults((prev) => ({ ...prev, categories: data }))
-      message.success(`Категории: ${data.created} создано, ${data.updated} обновлено`)
+      const stats = getResultStats(data)
+      message.success(`Категории: ${stats.created} создано, ${stats.updated} обновлено`)
     },
-    onError: (error: Error & { response?: { data?: { detail?: string } } }) => {
-      message.error(error.response?.data?.detail || 'Ошибка синхронизации категорий')
+    onError: (error: unknown) => {
+      message.error(getErrorMessage(error, 'Ошибка синхронизации категорий'))
     },
   })
 
@@ -133,22 +146,24 @@ export default function Sync1CPage() {
   const renderSyncResult = (result: Sync1CResult | undefined, title: string) => {
     if (!result) return null
 
+    const stats = getResultStats(result)
+
     return (
       <Card size="small" style={{ marginTop: 8 }}>
         <Descriptions title={title} column={2} size="small">
           <Descriptions.Item label="Обработано">
-            {result.total_processed}
+            {stats.total_processed}
           </Descriptions.Item>
           <Descriptions.Item label="Создано">
-            <Tag color="green">{result.created}</Tag>
+            <Tag color="green">{stats.created}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="Обновлено">
-            <Tag color="blue">{result.updated}</Tag>
+            <Tag color="blue">{stats.updated}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="Пропущено">
-            <Tag color="default">{result.skipped}</Tag>
+            <Tag color="default">{stats.skipped}</Tag>
           </Descriptions.Item>
-          {result.errors.length > 0 && (
+          {result.errors && result.errors.length > 0 && (
             <Descriptions.Item label="Ошибки" span={2}>
               <Tag color="red">{result.errors.length}</Tag>
             </Descriptions.Item>

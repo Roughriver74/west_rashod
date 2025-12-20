@@ -12,7 +12,6 @@ class CategoryBase(BaseModel):
     type: ExpenseTypeEnum
     description: Optional[str] = None
     parent_id: Optional[int] = None
-    department_id: Optional[int] = None
     code_1c: Optional[str] = None
     is_folder: bool = False
     order_index: Optional[int] = None
@@ -30,7 +29,6 @@ class CategoryUpdate(BaseModel):
     type: Optional[ExpenseTypeEnum] = None
     description: Optional[str] = None
     parent_id: Optional[int] = None
-    department_id: Optional[int] = None
     code_1c: Optional[str] = None
     is_folder: Optional[bool] = None
     order_index: Optional[int] = None

@@ -16,14 +16,13 @@ router = APIRouter(prefix="/users", tags=["Users"])
 def get_users(
     skip: int = 0,
     limit: int = 100,
-    department_id: Optional[int] = None,
     role: Optional[UserRoleEnum] = None,
     is_active: Optional[bool] = None,
     search: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Get all users (ADMIN only, or MANAGER for own department)."""
+    """Get all users (ADMIN and MANAGER only)."""
     if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -31,12 +30,6 @@ def get_users(
         )
 
     query = db.query(User)
-
-    # MANAGER can only see users in their department
-    if current_user.role == UserRoleEnum.MANAGER:
-        query = query.filter(User.department_id == current_user.department_id)
-    elif department_id:
-        query = query.filter(User.department_id == department_id)
 
     if role:
         query = query.filter(User.role == role)
@@ -74,14 +67,6 @@ def get_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-
-    # MANAGER can only see users in their department
-    if current_user.role == UserRoleEnum.MANAGER:
-        if user.department_id != current_user.department_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not authorized to view this user"
-            )
 
     return user
 
@@ -121,7 +106,6 @@ def create_user(
         full_name=user_data.full_name,
         hashed_password=get_password_hash(user_data.password),
         role=user_data.role,
-        department_id=user_data.department_id,
         position=user_data.position,
         phone=user_data.phone,
         is_active=user_data.is_active,

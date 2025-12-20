@@ -51,6 +51,10 @@ class OData1CClient:
             })
             logger.debug(f"Using HTTPBasicAuth with username: {username}")
 
+        # Caches to reduce HTTP requests
+        self._counterparty_cache: Dict[str, Dict[str, Any]] = {}
+        self._organization_cache: Dict[str, Dict[str, Any]] = {}
+
     def _make_request(
         self,
         method: str,
@@ -381,7 +385,7 @@ class OData1CClient:
 
     def get_counterparty_by_key(self, key: str) -> Optional[Dict[str, Any]]:
         """
-        Получить контрагента по ключу
+        Получить контрагента по ключу (с кэшированием)
 
         Args:
             key: GUID контрагента
@@ -392,12 +396,19 @@ class OData1CClient:
         if not key or key == "00000000-0000-0000-0000-000000000000":
             return None
 
+        # Check cache first
+        if key in self._counterparty_cache:
+            return self._counterparty_cache[key]
+
         try:
             response = self._make_request(
                 method='GET',
                 endpoint=f"Catalog_Контрагенты(guid'{key}')",
                 params={'$format': 'json'}
             )
+            # Cache the result
+            if response:
+                self._counterparty_cache[key] = response
             return response
         except Exception as e:
             logger.warning(f"Failed to fetch counterparty {key}: {e}")
@@ -405,7 +416,7 @@ class OData1CClient:
 
     def get_organization_by_key(self, key: str) -> Optional[Dict[str, Any]]:
         """
-        Получить организацию по ключу
+        Получить организацию по ключу (с кэшированием)
 
         Args:
             key: GUID организации
@@ -416,12 +427,19 @@ class OData1CClient:
         if not key or key == "00000000-0000-0000-0000-000000000000":
             return None
 
+        # Check cache first
+        if key in self._organization_cache:
+            return self._organization_cache[key]
+
         try:
             response = self._make_request(
                 method='GET',
                 endpoint=f"Catalog_Организации(guid'{key}')",
                 params={'$format': 'json'}
             )
+            # Cache the result
+            if response:
+                self._organization_cache[key] = response
             return response
         except Exception as e:
             logger.warning(f"Failed to fetch organization {key}: {e}")

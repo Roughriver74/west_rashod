@@ -5,7 +5,6 @@ Business Operation Mapper (Маппер ХозяйственнаяОпераци
 через таблицу в БД (business_operation_mappings).
 
 Преимущества гибкого подхода:
-- Настройка маппинга для каждого отдела отдельно
 - Изменение маппинга без изменения кода
 - Приоритезация при множественных соответствиях
 - Простая настройка через БД или UI
@@ -30,19 +29,17 @@ class BusinessOperationMapper:
             db: Database session
         """
         self.db = db
-        self._cache: Dict[Tuple[str, int], Optional[Tuple[int, float]]] = {}  # Cache {(operation, dept_id): (cat_id, confidence)}
+        self._cache: Dict[str, Optional[Tuple[int, float]]] = {}  # Cache {operation: (cat_id, confidence)}
 
     def get_category_by_business_operation(
         self,
-        business_operation: str,
-        department_id: int
+        business_operation: str
     ) -> Optional[int]:
         """
         Получить ID категории по хозяйственной операции
 
         Args:
             business_operation: ХозяйственнаяОперация из 1С
-            department_id: ID отдела
 
         Returns:
             category_id или None если не найдено
@@ -51,9 +48,8 @@ class BusinessOperationMapper:
             return None
 
         # Проверить кэш
-        cache_key = (business_operation, department_id)
-        if cache_key in self._cache:
-            result = self._cache[cache_key]
+        if business_operation in self._cache:
+            result = self._cache[business_operation]
             return result[0] if result else None
 
         # Найти маппинг в БД
@@ -63,7 +59,6 @@ class BusinessOperationMapper:
             self.db.query(BusinessOperationMapping)
             .filter(
                 BusinessOperationMapping.business_operation == business_operation,
-                BusinessOperationMapping.department_id == department_id,
                 BusinessOperationMapping.is_active == True
             )
             .order_by(BusinessOperationMapping.priority.desc())  # Самый высокий приоритет
@@ -72,7 +67,7 @@ class BusinessOperationMapper:
 
         if mapping:
             # Сохранить в кэш
-            self._cache[cache_key] = (mapping.category_id, float(mapping.confidence))
+            self._cache[business_operation] = (mapping.category_id, float(mapping.confidence))
             logger.debug(
                 f"Mapped business_operation '{business_operation}' → "
                 f"category_id {mapping.category_id} (confidence: {mapping.confidence})"
@@ -80,21 +75,19 @@ class BusinessOperationMapper:
             return mapping.category_id
         else:
             # Сохранить в кэш отсутствие маппинга
-            self._cache[cache_key] = None
-            logger.debug(f"No mapping found for business_operation: '{business_operation}' (department_id={department_id})")
+            self._cache[business_operation] = None
+            logger.debug(f"No mapping found for business_operation: '{business_operation}'")
             return None
 
     def get_confidence_for_mapping(
         self,
-        business_operation: str,
-        department_id: int
+        business_operation: str
     ) -> float:
         """
         Получить уровень уверенности для маппинга
 
         Args:
             business_operation: ХозяйственнаяОперация
-            department_id: ID отдела
 
         Returns:
             Confidence (0.0-1.0, или 0.0 если маппинг не найден)
@@ -103,9 +96,8 @@ class BusinessOperationMapper:
             return 0.0
 
         # Проверить кэш
-        cache_key = (business_operation, department_id)
-        if cache_key in self._cache:
-            result = self._cache[cache_key]
+        if business_operation in self._cache:
+            result = self._cache[business_operation]
             return result[1] if result else 0.0
 
         # Найти маппинг в БД
@@ -115,7 +107,6 @@ class BusinessOperationMapper:
             self.db.query(BusinessOperationMapping)
             .filter(
                 BusinessOperationMapping.business_operation == business_operation,
-                BusinessOperationMapping.department_id == department_id,
                 BusinessOperationMapping.is_active == True
             )
             .order_by(BusinessOperationMapping.priority.desc())
@@ -124,18 +115,15 @@ class BusinessOperationMapper:
 
         if mapping:
             confidence = float(mapping.confidence)
-            self._cache[cache_key] = (mapping.category_id, confidence)
+            self._cache[business_operation] = (mapping.category_id, confidence)
             return confidence
         else:
-            self._cache[cache_key] = None
+            self._cache[business_operation] = None
             return 0.0
 
-    def get_all_mappings(self, department_id: int) -> List[Dict]:
+    def get_all_mappings(self) -> List[Dict]:
         """
-        Получить все активные маппинги для отдела
-
-        Args:
-            department_id: ID отдела
+        Получить все активные маппинги
 
         Returns:
             Список словарей с информацией о маппингах
@@ -144,9 +132,8 @@ class BusinessOperationMapper:
 
         mappings = (
             self.db.query(BusinessOperationMapping)
-            .join(BudgetCategory, BusinessOperationMapping.category_id == BudgetCategory.id)
+            .outerjoin(BudgetCategory, BusinessOperationMapping.category_id == BudgetCategory.id)
             .filter(
-                BusinessOperationMapping.department_id == department_id,
                 BusinessOperationMapping.is_active == True
             )
             .order_by(BusinessOperationMapping.priority.desc(), BusinessOperationMapping.business_operation)

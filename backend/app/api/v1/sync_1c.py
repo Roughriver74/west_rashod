@@ -1,4 +1,5 @@
 """1C OData sync API endpoints."""
+import logging
 from typing import Optional
 from datetime import date, datetime, timedelta
 
@@ -7,11 +8,17 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.db.models import User, UserRoleEnum
-from app.schemas.sync import Sync1CRequest, Sync1CResult, Sync1CConnectionTest
+from app.schemas.sync import (
+    Sync1CRequest,
+    Sync1CResult,
+    Sync1CConnectionTest
+)
 from app.utils.auth import get_current_active_user
 from app.services.odata_1c_client import OData1CClient, create_1c_client_from_env
 from app.services.bank_transaction_1c_import import BankTransaction1CImporter
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sync-1c", tags=["1C Integration"])
 
@@ -55,26 +62,46 @@ def sync_bank_transactions(
     db: Session = Depends(get_db)
 ):
     """Sync bank transactions from 1C."""
+    logger.info(f"=== SYNC BANK TRANSACTIONS START ===")
+    logger.info(f"User: {current_user.username}, Request: {sync_request}")
+
     if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        logger.warning(f"Access denied for user {current_user.username}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins and managers can sync from 1C"
         )
 
     try:
+        logger.info("Creating 1C client...")
         client = create_1c_client_from_env()
-        importer = BankTransaction1CImporter(db, client)
-
-        # Default date range: last 30 days
-        date_from = sync_request.date_from or (date.today() - timedelta(days=30))
-        date_to = sync_request.date_to or date.today()
-
-        result = importer.import_bank_transactions(
-            department_id=sync_request.department_id,
-            date_from=date_from,
-            date_to=date_to,
+        importer = BankTransaction1CImporter(
+            db=db,
+            odata_client=client,
             auto_classify=sync_request.auto_classify
         )
+
+        # Parse dates from string or use defaults
+        if sync_request.date_from:
+            date_from = datetime.fromisoformat(sync_request.date_from.replace('Z', '+00:00')).date()
+        else:
+            date_from = date.today() - timedelta(days=30)
+
+        if sync_request.date_to:
+            date_to = datetime.fromisoformat(sync_request.date_to.replace('Z', '+00:00')).date()
+        else:
+            date_to = date.today()
+
+        logger.info(f"Importing transactions from {date_from} to {date_to}")
+        result = importer.import_transactions(
+            date_from=date_from,
+            date_to=date_to
+        )
+
+        logger.info(f"Import result: success={result.success}, message={result.message}")
+        logger.info(f"Stats: fetched={result.total_fetched}, created={result.total_created}, updated={result.total_updated}")
+        if result.errors:
+            logger.warning(f"Errors ({len(result.errors)}): {result.errors[:5]}")
 
         return Sync1CResult(
             success=result.success,
@@ -93,6 +120,7 @@ def sync_bank_transactions(
         )
 
     except Exception as e:
+        logger.error(f"Sync failed with exception: {e}", exc_info=True)
         return Sync1CResult(
             success=False,
             message=f"Sync failed: {str(e)}",
@@ -102,12 +130,15 @@ def sync_bank_transactions(
 
 @router.post("/organizations/sync", response_model=Sync1CResult)
 def sync_organizations(
-    department_id: int,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Sync organizations from 1C."""
+    logger.info(f"=== SYNC ORGANIZATIONS START ===")
+    logger.info(f"User: {current_user.username}")
+
     if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        logger.warning(f"Access denied for user {current_user.username}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins and managers can sync from 1C"
@@ -118,7 +149,11 @@ def sync_organizations(
         client = create_1c_client_from_env()
 
         # Get organizations from 1C
+        logger.info("Fetching organizations from 1C...")
         org_docs = client.get_organizations()
+        logger.info(f"Fetched {len(org_docs)} organizations from 1C")
+        if org_docs:
+            logger.debug(f"Sample org doc keys: {list(org_docs[0].keys())}")
 
         created = 0
         updated = 0
@@ -127,38 +162,62 @@ def sync_organizations(
         for org_doc in org_docs:
             try:
                 ref_key = org_doc.get("Ref_Key")
+                # Get name from various 1C fields
+                name = (
+                    org_doc.get("Description")
+                    or org_doc.get("НаименованиеПолное")
+                    or org_doc.get("НаименованиеСокращенное")
+                    or f"Организация {ref_key[:8] if ref_key else 'Unknown'}"
+                )
+                full_name = org_doc.get("НаименованиеПолное") or name
+                short_name = org_doc.get("НаименованиеСокращенное") or name
+
                 if not ref_key:
                     continue
 
-                # Check if exists
+                # Check if exists by external_id or name
                 existing = db.query(Organization).filter(
                     Organization.external_id_1c == ref_key
                 ).first()
 
+                if not existing:
+                    # Also check by name (unique constraint)
+                    existing = db.query(Organization).filter(
+                        Organization.name == name
+                    ).first()
+
                 if existing:
                     # Update
-                    existing.name = org_doc.get("Description", existing.name)
+                    existing.name = name[:255]
+                    existing.full_name = full_name[:500] if full_name else None
+                    existing.short_name = short_name[:255] if short_name else None
                     existing.inn = org_doc.get("ИНН", existing.inn)
                     existing.kpp = org_doc.get("КПП", existing.kpp)
+                    existing.external_id_1c = ref_key  # Link to 1C
                     existing.synced_at = datetime.utcnow()
                     updated += 1
                 else:
                     # Create
                     org = Organization(
-                        name=org_doc.get("Description", "Unknown"),
+                        name=name[:255],
+                        full_name=full_name[:500] if full_name else None,
+                        short_name=short_name[:255] if short_name else None,
                         inn=org_doc.get("ИНН"),
                         kpp=org_doc.get("КПП"),
                         external_id_1c=ref_key,
-                        department_id=department_id,
                         synced_at=datetime.utcnow()
                     )
                     db.add(org)
+                    db.flush()  # Flush to catch unique errors early
                     created += 1
 
             except Exception as e:
-                errors.append(f"Error processing organization: {str(e)}")
+                db.rollback()
+                logger.error(f"Error processing org '{name}': {e}")
+                errors.append(f"Org '{name}': {str(e)}")
 
         db.commit()
+        logger.info(f"=== SYNC ORGANIZATIONS DONE: created={created}, updated={updated}, errors={len(errors)} ===")
 
         return Sync1CResult(
             success=True,
@@ -172,6 +231,7 @@ def sync_organizations(
         )
 
     except Exception as e:
+        logger.error(f"Sync organizations failed: {e}", exc_info=True)
         db.rollback()
         return Sync1CResult(
             success=False,
@@ -182,12 +242,15 @@ def sync_organizations(
 
 @router.post("/categories/sync", response_model=Sync1CResult)
 def sync_categories(
-    department_id: int,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Sync budget categories from 1C."""
+    logger.info(f"=== SYNC CATEGORIES START ===")
+    logger.info(f"User: {current_user.username}")
+
     if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        logger.warning(f"Access denied for user {current_user.username}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins and managers can sync from 1C"
@@ -198,13 +261,16 @@ def sync_categories(
         client = create_1c_client_from_env()
 
         # Get categories from 1C
+        logger.info("Fetching categories from 1C...")
         cat_docs = client.get_cash_flow_categories()
+        logger.info(f"Fetched {len(cat_docs)} categories from 1C")
 
         created = 0
         updated = 0
         errors = []
 
         for cat_doc in cat_docs:
+            name = cat_doc.get("Description", "Unknown")
             try:
                 ref_key = cat_doc.get("Ref_Key")
                 if not ref_key:
@@ -217,24 +283,27 @@ def sync_categories(
 
                 if existing:
                     # Update
-                    existing.name = cat_doc.get("Description", existing.name)
+                    existing.name = name
                     updated += 1
                 else:
                     # Create
                     cat = BudgetCategory(
-                        name=cat_doc.get("Description", "Unknown"),
+                        name=name,
                         type=ExpenseTypeEnum.OPEX,  # Default
                         external_id_1c=ref_key,
-                        department_id=department_id,
                         is_folder=cat_doc.get("IsFolder", False)
                     )
                     db.add(cat)
+                    db.flush()  # Flush to catch errors early
                     created += 1
 
             except Exception as e:
-                errors.append(f"Error processing category: {str(e)}")
+                db.rollback()
+                logger.error(f"Error processing category '{name}': {e}")
+                errors.append(f"Cat '{name}': {str(e)}")
 
         db.commit()
+        logger.info(f"=== SYNC CATEGORIES DONE: created={created}, updated={updated}, errors={len(errors)} ===")
 
         return Sync1CResult(
             success=True,
@@ -248,6 +317,7 @@ def sync_categories(
         )
 
     except Exception as e:
+        logger.error(f"Sync categories failed: {e}", exc_info=True)
         db.rollback()
         return Sync1CResult(
             success=False,

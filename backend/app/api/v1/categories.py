@@ -18,7 +18,6 @@ router = APIRouter(prefix="/categories", tags=["Budget Categories"])
 def get_categories(
     skip: int = 0,
     limit: int = 200,
-    department_id: Optional[int] = None,
     type: Optional[ExpenseTypeEnum] = None,
     is_active: Optional[bool] = None,
     search: Optional[str] = None,
@@ -27,9 +26,6 @@ def get_categories(
 ):
     """Get all budget categories."""
     query = db.query(BudgetCategory)
-
-    if department_id:
-        query = query.filter(BudgetCategory.department_id == department_id)
 
     if type:
         query = query.filter(BudgetCategory.type == type)
@@ -45,16 +41,12 @@ def get_categories(
 
 @router.get("/tree", response_model=List[CategoryTree])
 def get_category_tree(
-    department_id: Optional[int] = None,
     type: Optional[ExpenseTypeEnum] = None,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Get categories as tree structure."""
     query = db.query(BudgetCategory).filter(BudgetCategory.is_active == True)
-
-    if department_id:
-        query = query.filter(BudgetCategory.department_id == department_id)
 
     if type:
         query = query.filter(BudgetCategory.type == type)

@@ -146,26 +146,23 @@ class TransactionClassifier:
         ],
     }
 
-    def __init__(self, db: Session, department_id: Optional[int] = None):
+    def __init__(self, db: Session):
         self.db = db
-        self.department_id = department_id
 
         # Initialize Business Operation Mapper (highest priority)
         self.business_operation_mapper = BusinessOperationMapper(db)
 
-        # Load categories from 1C (database) if department_id is provided
+        # Load categories from 1C (database)
         self._1c_category_cache = {}
-        if department_id:
-            self._load_1c_categories(department_id)
+        self._load_1c_categories()
 
-    def _load_1c_categories(self, department_id: int):
+    def _load_1c_categories(self):
         """
         Load budget categories from database (synced from 1C)
         and build keyword mapping
         """
         # Get all active categories with 1C integration
         categories = self.db.query(BudgetCategory).filter(
-            BudgetCategory.department_id == department_id,
             BudgetCategory.is_active == True,
             BudgetCategory.external_id_1c.isnot(None),
             BudgetCategory.is_folder == False  # Only items, not folders
@@ -197,7 +194,7 @@ class TransactionClassifier:
                 'keywords': keywords
             }
 
-        print(f"Loaded {len(self._1c_category_cache)} categories from 1C for department {department_id}")
+        print(f"Loaded {len(self._1c_category_cache)} categories from 1C")
 
     def _match_1c_categories(self, text_lower: str) -> Optional[Tuple[int, float, List[str]]]:
         """
@@ -254,7 +251,6 @@ class TransactionClassifier:
         counterparty_name: Optional[str],
         counterparty_inn: Optional[str],
         amount: Decimal,
-        department_id: int,
         transaction_type: Optional[str] = None,
         business_operation: Optional[str] = None
     ) -> Tuple[Optional[int], float, str]:
@@ -266,7 +262,6 @@ class TransactionClassifier:
             counterparty_name: Counterparty name
             counterparty_inn: Counterparty INN
             amount: Transaction amount
-            department_id: Department ID
             transaction_type: DEBIT (expense) or CREDIT (income)
             business_operation: ХозяйственнаяОперация from 1C (highest priority)
 
@@ -278,34 +273,33 @@ class TransactionClassifier:
         # 0. Check business_operation first (HIGHEST PRIORITY - hard mapping from 1C)
         if business_operation:
             category_id = self.business_operation_mapper.get_category_by_business_operation(
-                business_operation,
-                department_id
+                business_operation
             )
             if category_id:
-                confidence = self.business_operation_mapper.get_confidence_for_mapping(business_operation, department_id)
+                confidence = self.business_operation_mapper.get_confidence_for_mapping(business_operation)
                 return category_id, confidence, f"Жёсткий маппинг по ХозяйственнаяОперация из 1С: '{business_operation}'"
 
         # 1. Check historical data (high confidence)
-        historical = self._get_historical_category(counterparty_inn, department_id)
+        historical = self._get_historical_category(counterparty_inn)
         if historical:
             return historical['category_id'], constants.AI_HISTORICAL_CONFIDENCE, f"Исторические данные: контрагент всегда относится к категории '{historical['category_name']}' ({historical['count']} транзакций)"
 
         # 2. Analyze payment purpose text (with transaction type context)
         if payment_purpose:
-            text_based = self._analyze_text(payment_purpose, department_id, transaction_type)
+            text_based = self._analyze_text(payment_purpose, transaction_type)
             if text_based:
                 return text_based
 
         # 3. Analyze counterparty name
         if counterparty_name:
-            name_based = self._analyze_text(counterparty_name, department_id, transaction_type)
+            name_based = self._analyze_text(counterparty_name, transaction_type)
             if name_based:
                 category_id, confidence, reasoning = name_based
                 return category_id, confidence * constants.AI_NAME_BASED_CONFIDENCE_MULTIPLIER, f"По имени контрагента: {reasoning}"
 
         # 4. Fallback to default categories based on transaction type
         if transaction_type:
-            default_category = self._get_default_category_by_type(transaction_type, department_id)
+            default_category = self._get_default_category_by_type(transaction_type)
             if default_category:
                 category_id, category_name = default_category
                 if transaction_type == 'CREDIT':
@@ -318,8 +312,7 @@ class TransactionClassifier:
 
     def _get_historical_category(
         self,
-        counterparty_inn: Optional[str],
-        department_id: int
+        counterparty_inn: Optional[str]
     ) -> Optional[Dict]:
         """
         Get most common category for this counterparty from historical data
@@ -337,7 +330,6 @@ class TransactionClassifier:
             BankTransaction.category_id == BudgetCategory.id
         ).filter(
             BankTransaction.counterparty_inn == counterparty_inn,
-            BankTransaction.department_id == department_id,
             BankTransaction.category_id.isnot(None),
             BankTransaction.is_active == True
         ).group_by(
@@ -359,7 +351,6 @@ class TransactionClassifier:
     def _analyze_text(
         self,
         text: str,
-        department_id: int,
         transaction_type: Optional[str] = None
     ) -> Optional[Tuple[int, float, str]]:
         """
@@ -367,7 +358,6 @@ class TransactionClassifier:
 
         Args:
             text: Text to analyze
-            department_id: Department ID
             transaction_type: DEBIT or CREDIT (prioritizes relevant keywords)
 
         Returns (category_id, confidence, reasoning)
@@ -458,7 +448,6 @@ class TransactionClassifier:
 
         # Find category in database by exact name match first
         category = self.db.query(BudgetCategory).filter(
-            BudgetCategory.department_id == department_id,
             BudgetCategory.name == best_match['pattern'],
             BudgetCategory.is_active == True
         ).first()
@@ -466,7 +455,6 @@ class TransactionClassifier:
         if not category:
             # Try partial match
             category = self.db.query(BudgetCategory).filter(
-                BudgetCategory.department_id == department_id,
                 BudgetCategory.name.ilike(f"%{best_match['pattern']}%"),
                 BudgetCategory.is_active == True
             ).first()
@@ -474,7 +462,6 @@ class TransactionClassifier:
         if not category:
             # Try to find by keyword match in category name
             categories = self.db.query(BudgetCategory).filter(
-                BudgetCategory.department_id == department_id,
                 BudgetCategory.is_active == True
             ).all()
 
@@ -492,15 +479,13 @@ class TransactionClassifier:
 
     def _get_default_category_by_type(
         self,
-        transaction_type: str,
-        department_id: int
+        transaction_type: str
     ) -> Optional[Tuple[int, str]]:
         """
         Get default category based on transaction type
 
         Args:
             transaction_type: DEBIT or CREDIT
-            department_id: Department ID
 
         Returns:
             Tuple of (category_id, category_name) or None
@@ -515,7 +500,6 @@ class TransactionClassifier:
             return None
 
         category = self.db.query(BudgetCategory).filter(
-            BudgetCategory.department_id == department_id,
             BudgetCategory.name == category_name,
             BudgetCategory.is_active == True
         ).first()
@@ -531,7 +515,6 @@ class TransactionClassifier:
         counterparty_name: Optional[str],
         counterparty_inn: Optional[str],
         amount: Decimal,
-        department_id: int,
         transaction_type: Optional[str] = None,
         top_n: int = 3
     ) -> List[Dict]:
@@ -543,7 +526,6 @@ class TransactionClassifier:
             counterparty_name: Counterparty name
             counterparty_inn: Counterparty INN
             amount: Transaction amount
-            department_id: Department ID
             transaction_type: DEBIT or CREDIT
             top_n: Maximum number of suggestions to return
 
@@ -553,7 +535,7 @@ class TransactionClassifier:
         suggestions = []
 
         # Historical data
-        historical = self._get_historical_category(counterparty_inn, department_id)
+        historical = self._get_historical_category(counterparty_inn)
         if historical:
             suggestions.append({
                 'category_id': historical['category_id'],
@@ -564,7 +546,7 @@ class TransactionClassifier:
 
         # Text analysis
         if payment_purpose:
-            text_result = self._analyze_text(payment_purpose, department_id, transaction_type)
+            text_result = self._analyze_text(payment_purpose, transaction_type)
             if text_result:
                 cat_id, conf, reason = text_result
                 cat = self.db.query(BudgetCategory).filter(BudgetCategory.id == cat_id).first()
@@ -578,7 +560,7 @@ class TransactionClassifier:
 
         # Default category based on transaction type
         if transaction_type and len(suggestions) < top_n:
-            default_cat = self._get_default_category_by_type(transaction_type, department_id)
+            default_cat = self._get_default_category_by_type(transaction_type)
             if default_cat:
                 cat_id, cat_name = default_cat
                 # Only add if not already in suggestions
@@ -620,9 +602,9 @@ class RegularPaymentDetector:
     def __init__(self, db: Session):
         self.db = db
 
-    def detect_patterns(self, department_id: int) -> List[Dict]:
+    def detect_patterns(self) -> List[Dict]:
         """
-        Detect regular payment patterns for a department
+        Detect regular payment patterns
         Returns list of patterns with frequency and last payment date
         """
         # Find transactions with same counterparty_inn that occur regularly
@@ -639,7 +621,6 @@ class RegularPaymentDetector:
             func.avg(BankTransaction.amount).label('avg_amount'),
             func.max(BankTransaction.transaction_date).label('last_date')
         ).filter(
-            BankTransaction.department_id == department_id,
             BankTransaction.counterparty_inn.isnot(None),
             BankTransaction.is_active == True,
             BankTransaction.transaction_type == 'DEBIT'
@@ -655,7 +636,6 @@ class RegularPaymentDetector:
             # Get all transaction dates for this INN
             dates = self.db.query(BankTransaction.transaction_date).filter(
                 BankTransaction.counterparty_inn == group.counterparty_inn,
-                BankTransaction.department_id == department_id,
                 BankTransaction.is_active == True
             ).order_by(BankTransaction.transaction_date).all()
 
@@ -695,19 +675,18 @@ class RegularPaymentDetector:
 
         return patterns
 
-    def mark_regular_payments(self, department_id: int) -> int:
+    def mark_regular_payments(self) -> int:
         """
         Mark transactions as regular payments based on detected patterns
         Returns number of transactions marked
         """
-        patterns = self.detect_patterns(department_id)
+        patterns = self.detect_patterns()
         marked_count = 0
 
         for pattern in patterns:
             # Mark all transactions from this counterparty as regular
             updated = self.db.query(BankTransaction).filter(
                 BankTransaction.counterparty_inn == pattern['counterparty_inn'],
-                BankTransaction.department_id == department_id,
                 BankTransaction.is_active == True
             ).update({
                 'is_regular_payment': True

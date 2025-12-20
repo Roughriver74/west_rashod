@@ -90,6 +90,9 @@ start_backend() {
     print_status "Starting Backend on port 8005..."
     cd "$BACKEND_DIR"
 
+    # Kill any existing process on port 8005
+    lsof -ti:8005 | xargs kill -9 2>/dev/null || true
+
     # Create venv if not exists
     if [ ! -d "venv" ]; then
         print_warning "Creating Python virtual environment..."
@@ -101,8 +104,8 @@ start_backend() {
 
     # Install dependencies
     if [ ! -f "venv/.deps_installed" ]; then
-        print_status "Installing Python dependencies..."
-        pip install -r requirements.txt -q
+        print_status "Installing Python dependencies (this may take a few minutes)..."
+        pip install -r requirements.txt
         touch venv/.deps_installed
     fi
 
@@ -152,24 +155,47 @@ start_all() {
     # Start DB
     start_db
 
-    # Start backend and frontend in parallel
-    print_status "Starting Backend and Frontend..."
+    # Kill any existing process on port 8005
+    print_status "Cleaning up port 8005..."
+    lsof -ti:8005 | xargs kill -9 2>/dev/null || true
+    sleep 1
+
+    # Setup backend (venv, deps, migrations, admin) - run once before uvicorn
+    print_status "Setting up Backend..."
+    cd "$BACKEND_DIR"
+
+    if [ ! -d "venv" ]; then
+        print_warning "Creating Python virtual environment..."
+        python3 -m venv venv
+    fi
+
+    source venv/bin/activate
+
+    if [ ! -f "venv/.deps_installed" ]; then
+        print_status "Installing Python dependencies (this may take a few minutes)..."
+        pip install -r requirements.txt
+        touch venv/.deps_installed
+    fi
+
+    print_status "Running database migrations..."
+    alembic upgrade head 2>/dev/null || print_warning "Migrations may have failed, continuing..."
+
+    # Create admin if needed (run once, not on every reload)
+    python3 scripts/create_admin.py 2>/dev/null || true
 
     # Create a trap to kill both processes on exit
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
 
-    # Start backend in background
-    (cd "$BACKEND_DIR" && source venv/bin/activate 2>/dev/null || python3 -m venv venv && source venv/bin/activate && \
-        pip install -r requirements.txt -q 2>/dev/null && \
-        alembic upgrade head 2>/dev/null; \
-        python3 scripts/create_admin.py 2>/dev/null; \
-        uvicorn app.main:app --reload --host 0.0.0.0 --port 8005) &
+    # Start uvicorn in background (without setup steps)
+    print_status "Starting uvicorn server..."
+    uvicorn app.main:app --reload --host 0.0.0.0 --port 8005 &
     BACKEND_PID=$!
 
     # Give backend time to start
-    sleep 3
+    sleep 2
 
     # Start frontend in background
+    print_status "Starting Frontend..."
     (cd "$FRONTEND_DIR" && npm install 2>/dev/null && npm run dev -- --port 5178 --host) &
     FRONTEND_PID=$!
 

@@ -19,7 +19,6 @@ router = APIRouter(prefix="/business-operation-mappings", tags=["Business Operat
 def get_mappings(
     skip: int = 0,
     limit: int = 100,
-    department_id: Optional[int] = None,
     is_active: Optional[bool] = None,
     search: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
@@ -29,12 +28,6 @@ def get_mappings(
     query = db.query(BusinessOperationMapping).options(
         joinedload(BusinessOperationMapping.category_rel)
     )
-
-    # Filter by department
-    if current_user.role == UserRoleEnum.USER:
-        query = query.filter(BusinessOperationMapping.department_id == current_user.department_id)
-    elif department_id:
-        query = query.filter(BusinessOperationMapping.department_id == department_id)
 
     if is_active is not None:
         query = query.filter(BusinessOperationMapping.is_active == is_active)
@@ -56,17 +49,11 @@ def get_mappings(
 
 @router.get("/stats")
 def get_mapping_stats(
-    department_id: Optional[int] = None,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Get mapping statistics."""
     query = db.query(BusinessOperationMapping)
-
-    if current_user.role == UserRoleEnum.USER:
-        query = query.filter(BusinessOperationMapping.department_id == current_user.department_id)
-    elif department_id:
-        query = query.filter(BusinessOperationMapping.department_id == department_id)
 
     total = query.count()
     active = query.filter(BusinessOperationMapping.is_active == True).count()

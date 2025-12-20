@@ -64,8 +64,6 @@ class BankTransactionBase(BaseModel):
     expense_acceptance_month: Optional[int] = None
     expense_acceptance_year: Optional[int] = None
 
-    department_id: int
-
 
 class BankTransactionCreate(BankTransactionBase):
     """Create bank transaction schema."""
@@ -192,3 +190,157 @@ class CategorySuggestion(BaseModel):
     category_name: str
     confidence: float
     reasoning: Optional[str] = None
+
+
+# ==================== Pagination ====================
+
+class BankTransactionList(BaseModel):
+    """List of bank transactions with pagination."""
+    total: int
+    items: List[BankTransactionResponse]
+    page: int
+    page_size: int
+    pages: int
+
+
+# ==================== Analytics Schemas ====================
+
+class BankTransactionKPIs(BaseModel):
+    """Key Performance Indicators for bank transactions."""
+    # Financial metrics
+    total_debit_amount: Decimal
+    total_credit_amount: Decimal
+    net_flow: Decimal
+    total_transactions: int
+
+    # Comparison with previous period
+    debit_change_percent: Optional[float] = None
+    credit_change_percent: Optional[float] = None
+    net_flow_change_percent: Optional[float] = None
+    transactions_change: Optional[int] = None
+
+    # Status distribution
+    new_count: int = 0
+    categorized_count: int = 0
+    approved_count: int = 0
+    needs_review_count: int = 0
+    ignored_count: int = 0
+
+    # Status percentages
+    new_percent: float = 0.0
+    categorized_percent: float = 0.0
+    approved_percent: float = 0.0
+    needs_review_percent: float = 0.0
+    ignored_percent: float = 0.0
+
+    # AI metrics
+    avg_category_confidence: Optional[float] = None
+    auto_categorized_count: int = 0
+    auto_categorized_percent: float = 0.0
+    regular_payments_count: int = 0
+    regular_payments_percent: float = 0.0
+
+
+class MonthlyFlowData(BaseModel):
+    """Monthly cash flow data for time series chart."""
+    year: int
+    month: int
+    month_name: str
+    debit_amount: Decimal
+    credit_amount: Decimal
+    net_flow: Decimal
+    transaction_count: int
+    avg_confidence: Optional[float] = None
+
+
+class DailyFlowData(BaseModel):
+    """Daily cash flow details."""
+    date: date
+    debit_amount: Decimal
+    credit_amount: Decimal
+    net_flow: Decimal
+    transaction_count: int
+
+
+class CategoryBreakdown(BaseModel):
+    """Breakdown by category."""
+    category_id: int
+    category_name: str
+    category_type: Optional[str] = None
+    transaction_count: int
+    total_amount: Decimal
+    avg_amount: Decimal
+    avg_confidence: Optional[float] = None
+    percent_of_total: float = 0.0
+
+
+class CounterpartyBreakdown(BaseModel):
+    """Breakdown by counterparty."""
+    counterparty_inn: Optional[str] = None
+    counterparty_name: str
+    transaction_count: int
+    total_amount: Decimal
+    avg_amount: Decimal
+    first_transaction_date: date
+    last_transaction_date: date
+    is_regular: bool = False
+
+
+class ProcessingFunnelStage(BaseModel):
+    """One stage in processing funnel."""
+    status: str
+    count: int
+    amount: Decimal
+    percent_of_total: float = 0.0
+
+
+class ProcessingFunnelData(BaseModel):
+    """Processing funnel data."""
+    stages: List[ProcessingFunnelStage]
+    total_count: int
+    conversion_rate_to_approved: float = 0.0
+
+
+class ConfidenceBracket(BaseModel):
+    """AI confidence bracket."""
+    bracket: str
+    min_confidence: float
+    max_confidence: float
+    count: int
+    total_amount: Decimal
+    percent_of_total: float = 0.0
+
+
+class AIPerformanceData(BaseModel):
+    """AI performance metrics."""
+    confidence_distribution: List[ConfidenceBracket]
+    avg_confidence: float = 0.0
+    high_confidence_count: int = 0
+    high_confidence_percent: float = 0.0
+    low_confidence_count: int = 0
+    low_confidence_percent: float = 0.0
+
+
+class LowConfidenceItem(BaseModel):
+    """Transaction with low AI confidence."""
+    transaction_id: int
+    transaction_date: date
+    counterparty_name: str
+    amount: Decimal
+    payment_purpose: Optional[str] = None
+    suggested_category_name: Optional[str] = None
+    category_confidence: float
+    status: str
+
+
+class BankTransactionAnalytics(BaseModel):
+    """Complete analytics data for bank transactions."""
+    kpis: BankTransactionKPIs
+    monthly_flow: List[MonthlyFlowData]
+    daily_flow: List[DailyFlowData]
+    top_categories: List[CategoryBreakdown]
+    category_type_distribution: List[CategoryBreakdown]
+    top_counterparties: List[CounterpartyBreakdown]
+    processing_funnel: ProcessingFunnelData
+    ai_performance: AIPerformanceData
+    low_confidence_items: List[LowConfidenceItem]

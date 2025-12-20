@@ -3,11 +3,32 @@ import apiClient from './client'
 export interface Sync1CResult {
   success: boolean
   message?: string
-  total_processed: number
-  created: number
-  updated: number
-  skipped: number
+  statistics: {
+    total?: number
+    total_fetched?: number
+    total_created?: number
+    total_updated?: number
+    total_skipped?: number
+    created?: number
+    updated?: number
+    skipped?: number
+    receipts_created?: number
+    payments_created?: number
+    cash_receipts_created?: number
+    cash_payments_created?: number
+  }
   errors: string[]
+}
+
+// Helper to get stats from result
+export function getResultStats(result: Sync1CResult) {
+  const stats = result.statistics || {}
+  return {
+    total_processed: stats.total ?? stats.total_fetched ?? 0,
+    created: stats.created ?? stats.total_created ?? 0,
+    updated: stats.updated ?? stats.total_updated ?? 0,
+    skipped: stats.skipped ?? stats.total_skipped ?? 0,
+  }
 }
 
 export const testConnection = async () => {

@@ -14,12 +14,25 @@ import {
   Row,
   Col,
   Tooltip,
+  Statistic,
+  Drawer,
+  Form,
+  Popconfirm,
+  Progress,
+  Modal,
 } from 'antd'
 import {
   UploadOutlined,
   SearchOutlined,
   SyncOutlined,
   CheckCircleOutlined,
+  DeleteOutlined,
+  TagOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
+  BankOutlined,
+  WalletOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
@@ -30,9 +43,15 @@ import {
   TransactionFilters,
   importFromExcel,
   bulkStatusUpdate,
+  bulkCategorize,
+  categorizeTransaction,
+  getTransactionStats,
+  bulkDelete,
+  getCategorySuggestions,
 } from '../api/bankTransactions'
+import { getCategories } from '../api/categories'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 const { RangePicker } = DatePicker
 
 const statusColors: Record<string, string> = {
@@ -51,17 +70,46 @@ const statusLabels: Record<string, string> = {
   IGNORED: 'Игнорирована',
 }
 
+const formatAmount = (amount: number) => {
+  return Number(amount).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽'
+}
+
 export default function BankTransactionsPage() {
   const queryClient = useQueryClient()
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([])
   const [filters, setFilters] = useState<TransactionFilters>({
     limit: 50,
   })
+  const [categorizeDrawerOpen, setCategorizeDrawerOpen] = useState(false)
+  const [selectedTransaction, setSelectedTransaction] = useState<BankTransaction | null>(null)
+  const [form] = Form.useForm()
 
   // Fetch transactions
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ['bank-transactions', filters],
     queryFn: () => getBankTransactions(filters),
+  })
+
+  // Fetch stats
+  const { data: stats } = useQuery({
+    queryKey: ['bank-transactions-stats', filters.date_from, filters.date_to],
+    queryFn: () => getTransactionStats({
+      date_from: filters.date_from,
+      date_to: filters.date_to,
+    }),
+  })
+
+  // Fetch categories
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => getCategories({ is_active: true }),
+  })
+
+  // Category suggestions
+  const { data: suggestions = [] } = useQuery({
+    queryKey: ['category-suggestions', selectedTransaction?.id],
+    queryFn: () => selectedTransaction ? getCategorySuggestions(selectedTransaction.id) : Promise.resolve([]),
+    enabled: !!selectedTransaction,
   })
 
   // Import mutation
@@ -70,6 +118,7 @@ export default function BankTransactionsPage() {
     onSuccess: (data) => {
       message.success(`Импортировано: ${data.imported}, пропущено: ${data.skipped}`)
       queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
     },
     onError: () => {
       message.error('Ошибка импорта')
@@ -84,8 +133,65 @@ export default function BankTransactionsPage() {
       message.success('Статус обновлен')
       setSelectedRowKeys([])
       queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
     },
   })
+
+  // Bulk categorize mutation
+  const bulkCategorizeMutation = useMutation({
+    mutationFn: (category_id: number) =>
+      bulkCategorize({ transaction_ids: selectedRowKeys, category_id }),
+    onSuccess: () => {
+      message.success('Категория назначена')
+      setSelectedRowKeys([])
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
+    },
+  })
+
+  // Categorize single mutation
+  const categorizeMutation = useMutation({
+    mutationFn: ({ id, category_id, notes }: { id: number; category_id: number; notes?: string }) =>
+      categorizeTransaction(id, { category_id, notes }),
+    onSuccess: () => {
+      message.success('Категория назначена')
+      setCategorizeDrawerOpen(false)
+      setSelectedTransaction(null)
+      form.resetFields()
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
+    },
+  })
+
+  // Bulk delete mutation
+  const bulkDeleteMutation = useMutation({
+    mutationFn: () => bulkDelete(selectedRowKeys),
+    onSuccess: (data) => {
+      message.success(`Удалено: ${data.deleted}`)
+      setSelectedRowKeys([])
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
+    },
+  })
+
+  const openCategorizeDrawer = (record: BankTransaction) => {
+    setSelectedTransaction(record)
+    form.setFieldsValue({
+      category_id: record.category_id,
+      notes: record.notes,
+    })
+    setCategorizeDrawerOpen(true)
+  }
+
+  const handleCategorize = (values: { category_id: number; notes?: string }) => {
+    if (selectedTransaction) {
+      categorizeMutation.mutate({
+        id: selectedTransaction.id,
+        category_id: values.category_id,
+        notes: values.notes,
+      })
+    }
+  }
 
   const columns: ColumnsType<BankTransaction> = [
     {
@@ -101,22 +207,29 @@ export default function BankTransactionsPage() {
       dataIndex: 'transaction_type',
       key: 'transaction_type',
       width: 80,
-      render: (type) => (
-        <Tag color={type === 'DEBIT' ? 'red' : 'green'}>
-          {type === 'DEBIT' ? 'Расход' : 'Приход'}
-        </Tag>
+      render: (type, record) => (
+        <Space size="small">
+          <Tag color={type === 'DEBIT' ? 'red' : 'green'}>
+            {type === 'DEBIT' ? 'Расход' : 'Приход'}
+          </Tag>
+          {record.payment_source === 'CASH' && (
+            <Tooltip title="Касса">
+              <WalletOutlined style={{ color: '#722ed1' }} />
+            </Tooltip>
+          )}
+        </Space>
       ),
     },
     {
       title: 'Сумма',
       dataIndex: 'amount',
       key: 'amount',
-      width: 120,
+      width: 130,
       align: 'right',
       render: (amount, record) => (
-        <span style={{ color: record.transaction_type === 'DEBIT' ? '#cf1322' : '#3f8600' }}>
-          {Number(amount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽
-        </span>
+        <Text strong style={{ color: record.transaction_type === 'DEBIT' ? '#cf1322' : '#3f8600' }}>
+          {formatAmount(amount)}
+        </Text>
       ),
       sorter: (a, b) => Number(a.amount) - Number(b.amount),
     },
@@ -127,8 +240,13 @@ export default function BankTransactionsPage() {
       width: 200,
       ellipsis: true,
       render: (name, record) => (
-        <Tooltip title={`ИНН: ${record.counterparty_inn || '-'}`}>
-          {name || '-'}
+        <Tooltip title={
+          <div>
+            <div>ИНН: {record.counterparty_inn || '-'}</div>
+            {record.counterparty_bank && <div>Банк: {record.counterparty_bank}</div>}
+          </div>
+        }>
+          <span>{name || '-'}</span>
         </Tooltip>
       ),
     },
@@ -137,9 +255,18 @@ export default function BankTransactionsPage() {
       dataIndex: 'payment_purpose',
       key: 'payment_purpose',
       ellipsis: true,
-      render: (purpose) => (
+      render: (purpose, record) => (
         <Tooltip title={purpose}>
-          <span>{purpose || '-'}</span>
+          <div>
+            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {purpose || '-'}
+            </div>
+            {record.business_operation && (
+              <Text type="secondary" style={{ fontSize: '11px' }}>
+                {record.business_operation}
+              </Text>
+            )}
+          </div>
         </Tooltip>
       ),
     },
@@ -147,8 +274,40 @@ export default function BankTransactionsPage() {
       title: 'Категория',
       dataIndex: 'category_name',
       key: 'category_name',
-      width: 150,
-      render: (name) => name || <Tag color="warning">Не назначена</Tag>,
+      width: 170,
+      render: (name, record) => {
+        if (name) {
+          return (
+            <Space>
+              <Tag color="green">{name}</Tag>
+              {record.category_confidence && (
+                <Tooltip title={`Уверенность AI: ${(record.category_confidence * 100).toFixed(0)}%`}>
+                  <Progress
+                    type="circle"
+                    percent={Math.round(record.category_confidence * 100)}
+                    size={20}
+                    strokeColor={record.category_confidence >= 0.9 ? '#52c41a' : record.category_confidence >= 0.7 ? '#faad14' : '#ff4d4f'}
+                  />
+                </Tooltip>
+              )}
+            </Space>
+          )
+        }
+        if (record.suggested_category_name) {
+          return (
+            <Tooltip title={`Предложение AI (${((record.category_confidence || 0) * 100).toFixed(0)}%)`}>
+              <Tag color="orange" style={{ cursor: 'pointer' }} onClick={() => openCategorizeDrawer(record)}>
+                {record.suggested_category_name}?
+              </Tag>
+            </Tooltip>
+          )
+        }
+        return (
+          <Button type="link" size="small" onClick={() => openCategorizeDrawer(record)}>
+            Назначить
+          </Button>
+        )
+      },
     },
     {
       title: 'Статус',
@@ -156,6 +315,18 @@ export default function BankTransactionsPage() {
       key: 'status',
       width: 140,
       render: (status) => <Tag color={statusColors[status]}>{statusLabels[status]}</Tag>,
+    },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 100,
+      render: (_, record) => (
+        <Space size="small">
+          <Tooltip title="Категоризировать">
+            <Button type="text" size="small" icon={<TagOutlined />} onClick={() => openCategorizeDrawer(record)} />
+          </Tooltip>
+        </Space>
+      ),
     },
   ]
 
@@ -167,9 +338,58 @@ export default function BankTransactionsPage() {
   return (
     <div>
       <Title level={3} style={{ marginBottom: 16 }}>
+        <BankOutlined style={{ marginRight: 8 }} />
         Банковские операции
       </Title>
 
+      {/* Statistics Cards */}
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} md={6}>
+          <Card size="small">
+            <Statistic
+              title="Всего операций"
+              value={stats?.total || 0}
+              prefix={<BankOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card size="small">
+            <Statistic
+              title="Расход"
+              value={stats?.total_debit || 0}
+              precision={2}
+              prefix={<ArrowDownOutlined style={{ color: '#cf1322' }} />}
+              suffix="₽"
+              valueStyle={{ color: '#cf1322' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card size="small">
+            <Statistic
+              title="Приход"
+              value={stats?.total_credit || 0}
+              precision={2}
+              prefix={<ArrowUpOutlined style={{ color: '#3f8600' }} />}
+              suffix="₽"
+              valueStyle={{ color: '#3f8600' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card size="small">
+            <Statistic
+              title="Требуют проверки"
+              value={stats?.needs_review || 0}
+              prefix={<ExclamationCircleOutlined style={{ color: '#faad14' }} />}
+              valueStyle={{ color: stats?.needs_review ? '#faad14' : undefined }}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Filters */}
       <Card style={{ marginBottom: 16 }}>
         <Row gutter={[16, 16]} align="middle">
           <Col flex="auto">
@@ -181,10 +401,11 @@ export default function BankTransactionsPage() {
                 onChange={(e) =>
                   setFilters((prev) => ({ ...prev, search: e.target.value }))
                 }
+                allowClear
               />
               <Select
                 placeholder="Статус"
-                style={{ width: 150 }}
+                style={{ width: 160 }}
                 allowClear
                 onChange={(value) =>
                   setFilters((prev) => ({ ...prev, status: value }))
@@ -206,6 +427,22 @@ export default function BankTransactionsPage() {
                   { value: 'CREDIT', label: 'Приход' },
                 ]}
               />
+              <Select
+                placeholder="Категория"
+                style={{ width: 200 }}
+                allowClear
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                }
+                onChange={(value) =>
+                  setFilters((prev) => ({ ...prev, category_id: value }))
+                }
+                options={categories.map((cat) => ({
+                  value: cat.id,
+                  label: cat.name,
+                }))}
+              />
               <RangePicker
                 onChange={(dates) => {
                   setFilters((prev) => ({
@@ -220,13 +457,45 @@ export default function BankTransactionsPage() {
           <Col>
             <Space>
               {selectedRowKeys.length > 0 && (
-                <Button
-                  icon={<CheckCircleOutlined />}
-                  onClick={() => bulkStatusMutation.mutate('APPROVED')}
-                  loading={bulkStatusMutation.isPending}
-                >
-                  Утвердить ({selectedRowKeys.length})
-                </Button>
+                <>
+                  <Select
+                    placeholder="Назначить категорию"
+                    style={{ width: 200 }}
+                    showSearch
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                    onChange={(value) => {
+                      if (value) {
+                        Modal.confirm({
+                          title: `Назначить категорию для ${selectedRowKeys.length} операций?`,
+                          onOk: () => bulkCategorizeMutation.mutate(value),
+                        })
+                      }
+                    }}
+                    options={categories.map((cat) => ({
+                      value: cat.id,
+                      label: cat.name,
+                    }))}
+                  />
+                  <Button
+                    icon={<CheckCircleOutlined />}
+                    onClick={() => bulkStatusMutation.mutate('APPROVED')}
+                    loading={bulkStatusMutation.isPending}
+                  >
+                    Утвердить ({selectedRowKeys.length})
+                  </Button>
+                  <Popconfirm
+                    title={`Удалить ${selectedRowKeys.length} операций?`}
+                    onConfirm={() => bulkDeleteMutation.mutate()}
+                    okText="Да"
+                    cancelText="Нет"
+                  >
+                    <Button danger icon={<DeleteOutlined />} loading={bulkDeleteMutation.isPending}>
+                      Удалить
+                    </Button>
+                  </Popconfirm>
+                </>
               )}
               <Upload
                 accept=".xlsx,.xls"
@@ -242,9 +511,10 @@ export default function BankTransactionsPage() {
               </Upload>
               <Button
                 icon={<SyncOutlined />}
-                onClick={() =>
+                onClick={() => {
                   queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
-                }
+                  queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
+                }}
               >
                 Обновить
               </Button>
@@ -253,6 +523,7 @@ export default function BankTransactionsPage() {
         </Row>
       </Card>
 
+      {/* Table */}
       <Card>
         <Table
           rowKey="id"
@@ -265,10 +536,128 @@ export default function BankTransactionsPage() {
             showSizeChanger: true,
             showTotal: (total) => `Всего: ${total}`,
           }}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 1400 }}
           size="middle"
         />
       </Card>
+
+      {/* Categorize Drawer */}
+      <Drawer
+        title="Категоризация операции"
+        placement="right"
+        width={500}
+        open={categorizeDrawerOpen}
+        onClose={() => {
+          setCategorizeDrawerOpen(false)
+          setSelectedTransaction(null)
+          form.resetFields()
+        }}
+      >
+        {selectedTransaction && (
+          <div>
+            <Card size="small" style={{ marginBottom: 16 }}>
+              <Row gutter={[8, 8]}>
+                <Col span={12}>
+                  <Text type="secondary">Дата:</Text>
+                  <div>{dayjs(selectedTransaction.transaction_date).format('DD.MM.YYYY')}</div>
+                </Col>
+                <Col span={12}>
+                  <Text type="secondary">Сумма:</Text>
+                  <div style={{ color: selectedTransaction.transaction_type === 'DEBIT' ? '#cf1322' : '#3f8600', fontWeight: 'bold' }}>
+                    {formatAmount(selectedTransaction.amount)}
+                  </div>
+                </Col>
+                <Col span={24}>
+                  <Text type="secondary">Контрагент:</Text>
+                  <div>{selectedTransaction.counterparty_name || '-'}</div>
+                </Col>
+                <Col span={24}>
+                  <Text type="secondary">Назначение:</Text>
+                  <div style={{ fontSize: '12px' }}>{selectedTransaction.payment_purpose || '-'}</div>
+                </Col>
+                {selectedTransaction.business_operation && (
+                  <Col span={24}>
+                    <Text type="secondary">Хозяйственная операция:</Text>
+                    <div><Tag>{selectedTransaction.business_operation}</Tag></div>
+                  </Col>
+                )}
+              </Row>
+            </Card>
+
+            {/* AI Suggestions */}
+            {(selectedTransaction.suggested_category_id || suggestions.length > 0) && (
+              <Card size="small" style={{ marginBottom: 16 }} title="Предложения AI">
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  {selectedTransaction.suggested_category_name && (
+                    <Button
+                      type="dashed"
+                      block
+                      onClick={() => {
+                        form.setFieldsValue({ category_id: selectedTransaction.suggested_category_id })
+                      }}
+                    >
+                      {selectedTransaction.suggested_category_name}
+                      {selectedTransaction.category_confidence && (
+                        <Tag color="blue" style={{ marginLeft: 8 }}>
+                          {(selectedTransaction.category_confidence * 100).toFixed(0)}%
+                        </Tag>
+                      )}
+                    </Button>
+                  )}
+                  {suggestions.map((sug: { category_id: number; category_name: string; confidence: number }) => (
+                    <Button
+                      key={sug.category_id}
+                      type="dashed"
+                      block
+                      onClick={() => {
+                        form.setFieldsValue({ category_id: sug.category_id })
+                      }}
+                    >
+                      {sug.category_name}
+                      <Tag color="blue" style={{ marginLeft: 8 }}>
+                        {(sug.confidence * 100).toFixed(0)}%
+                      </Tag>
+                    </Button>
+                  ))}
+                </Space>
+              </Card>
+            )}
+
+            <Form form={form} layout="vertical" onFinish={handleCategorize}>
+              <Form.Item
+                name="category_id"
+                label="Категория"
+                rules={[{ required: true, message: 'Выберите категорию' }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="Выберите категорию"
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={categories.map((cat) => ({
+                    value: cat.id,
+                    label: cat.name,
+                  }))}
+                />
+              </Form.Item>
+              <Form.Item name="notes" label="Примечание">
+                <Input.TextArea rows={3} placeholder="Дополнительные заметки..." />
+              </Form.Item>
+              <Form.Item>
+                <Space>
+                  <Button type="primary" htmlType="submit" loading={categorizeMutation.isPending}>
+                    Сохранить
+                  </Button>
+                  <Button onClick={() => setCategorizeDrawerOpen(false)}>
+                    Отмена
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </div>
+        )}
+      </Drawer>
     </div>
   )
 }

@@ -12,7 +12,6 @@ class BusinessOperationMappingBase(BaseModel):
     priority: int = 10
     confidence: Decimal = Decimal("0.98")
     notes: Optional[str] = None
-    department_id: int
     is_active: bool = True
 
 

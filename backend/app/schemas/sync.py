@@ -6,9 +6,8 @@ from datetime import datetime, date
 
 class Sync1CRequest(BaseModel):
     """Request for 1C sync."""
-    date_from: Optional[date] = None
-    date_to: Optional[date] = None
-    department_id: int
+    date_from: Optional[str] = None  # Accept string, parse to date
+    date_to: Optional[str] = None
     auto_classify: bool = True
 
 

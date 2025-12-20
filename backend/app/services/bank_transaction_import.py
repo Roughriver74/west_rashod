@@ -107,7 +107,6 @@ class BankTransactionImporter:
         self,
         file_content: bytes,
         filename: str,
-        department_id: int,
         user_id: int,
         column_mapping: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
@@ -243,7 +242,6 @@ class BankTransactionImporter:
                         BankTransaction.transaction_date == transaction_date,
                         BankTransaction.amount == amount,
                         BankTransaction.counterparty_inn == counterparty_inn,
-                        BankTransaction.department_id == department_id,
                         BankTransaction.is_active == True
                     ).first()
 
@@ -282,7 +280,6 @@ class BankTransactionImporter:
                         transaction_month=transaction_month,
                         expense_acceptance_month=expense_acceptance_month,
                         # System fields
-                        department_id=department_id,
                         status=BankTransactionStatusEnum.NEW,
                         import_source='MANUAL_UPLOAD',
                         import_file_name=filename,
@@ -296,7 +293,6 @@ class BankTransactionImporter:
                             counterparty_name=counterparty_name,
                             counterparty_inn=counterparty_inn,
                             amount=amount,
-                            department_id=department_id,
                             transaction_type=transaction_type.value  # Pass transaction type for better classification
                         )
 

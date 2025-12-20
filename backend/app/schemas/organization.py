@@ -16,7 +16,6 @@ class OrganizationBase(BaseModel):
     prefix: Optional[str] = None
     okpo: Optional[str] = None
     address: Optional[str] = None
-    department_id: Optional[int] = None
     is_active: bool = True
 
 
@@ -37,7 +36,6 @@ class OrganizationUpdate(BaseModel):
     prefix: Optional[str] = None
     okpo: Optional[str] = None
     address: Optional[str] = None
-    department_id: Optional[int] = None
     is_active: Optional[bool] = None
 
 

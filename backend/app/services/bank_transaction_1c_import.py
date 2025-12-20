@@ -31,6 +31,8 @@ class BankTransaction1CImportResult:
     """Результат импорта банковских операций из 1С"""
 
     def __init__(self):
+        self.success = True
+        self.message = ""
         self.total_fetched = 0  # Получено из 1С
         self.total_processed = 0  # Обработано
         self.total_created = 0  # Создано новых
@@ -38,6 +40,10 @@ class BankTransaction1CImportResult:
         self.total_skipped = 0  # Пропущено (дубликаты)
         self.auto_categorized = 0  # Автоматически категоризировано
         self.auto_stubs_created = 0  # Автоматически создано stub-маппингов
+        self.receipts_created = 0  # Поступлений создано
+        self.payments_created = 0  # Списаний создано
+        self.cash_receipts_created = 0  # ПКО создано
+        self.cash_payments_created = 0  # РКО создано
         self.errors: List[str] = []
 
     def to_dict(self) -> Dict[str, Any]:
@@ -60,7 +66,6 @@ class BankTransaction1CImporter:
         self,
         db: Session,
         odata_client: OData1CClient,
-        department_id: int,
         auto_classify: bool = True
     ):
         """
@@ -69,12 +74,10 @@ class BankTransaction1CImporter:
         Args:
             db: Database session
             odata_client: 1C OData client
-            department_id: Department ID for multi-tenancy
             auto_classify: Apply AI classification automatically
         """
         self.db = db
         self.odata_client = odata_client
-        self.department_id = department_id
         self.auto_classify = auto_classify
 
         if auto_classify:
@@ -103,7 +106,7 @@ class BankTransaction1CImporter:
 
         logger.info(
             f"Starting 1C import: date_from={date_from}, date_to={date_to}, "
-            f"department_id={self.department_id}, auto_classify={self.auto_classify}"
+            f"auto_classify={self.auto_classify}"
         )
 
         try:
@@ -115,6 +118,7 @@ class BankTransaction1CImporter:
             result.total_updated += receipts_result.total_updated
             result.total_skipped += receipts_result.total_skipped
             result.auto_categorized += receipts_result.auto_categorized
+            result.receipts_created = receipts_result.total_created
             result.errors.extend(receipts_result.errors)
 
             # Импорт списаний безналичных (DEBIT, BANK)
@@ -125,6 +129,7 @@ class BankTransaction1CImporter:
             result.total_updated += payments_result.total_updated
             result.total_skipped += payments_result.total_skipped
             result.auto_categorized += payments_result.auto_categorized
+            result.payments_created = payments_result.total_created
             result.errors.extend(payments_result.errors)
 
             # Импорт кассовых поступлений (CREDIT, CASH) - ПКО
@@ -135,6 +140,7 @@ class BankTransaction1CImporter:
             result.total_updated += cash_receipts_result.total_updated
             result.total_skipped += cash_receipts_result.total_skipped
             result.auto_categorized += cash_receipts_result.auto_categorized
+            result.cash_receipts_created = cash_receipts_result.total_created
             result.errors.extend(cash_receipts_result.errors)
 
             # Импорт кассовых списаний (DEBIT, CASH) - РКО
@@ -145,12 +151,18 @@ class BankTransaction1CImporter:
             result.total_updated += cash_payments_result.total_updated
             result.total_skipped += cash_payments_result.total_skipped
             result.auto_categorized += cash_payments_result.auto_categorized
+            result.cash_payments_created = cash_payments_result.total_created
             result.errors.extend(cash_payments_result.errors)
 
+            # Set success and message
+            result.success = True
+            result.message = f"Импорт завершён: {result.total_created} создано, {result.total_updated} обновлено"
             logger.info(f"1C import completed: {result.to_dict()}")
 
         except Exception as e:
             logger.error(f"1C import failed: {e}", exc_info=True)
+            result.success = False
+            result.message = f"Ошибка импорта: {str(e)}"
             result.errors.append(f"Import failed: {str(e)}")
 
         return result
@@ -371,7 +383,6 @@ class BankTransaction1CImporter:
 
         else:
             transaction_data['external_id_1c'] = external_id
-            transaction_data['department_id'] = self.department_id
             transaction_data['transaction_type'] = BankTransactionTypeEnum.CREDIT
             transaction_data['import_source'] = 'ODATA_1C'
             transaction_data['imported_at'] = datetime.utcnow()
@@ -421,7 +432,6 @@ class BankTransaction1CImporter:
 
         else:
             transaction_data['external_id_1c'] = external_id
-            transaction_data['department_id'] = self.department_id
             transaction_data['transaction_type'] = BankTransactionTypeEnum.DEBIT
             transaction_data['import_source'] = 'ODATA_1C'
             transaction_data['imported_at'] = datetime.utcnow()
@@ -471,7 +481,6 @@ class BankTransaction1CImporter:
 
         else:
             transaction_data['external_id_1c'] = external_id
-            transaction_data['department_id'] = self.department_id
             transaction_data['transaction_type'] = BankTransactionTypeEnum.CREDIT
             transaction_data['import_source'] = 'ODATA_1C'
             transaction_data['imported_at'] = datetime.utcnow()
@@ -521,7 +530,6 @@ class BankTransaction1CImporter:
 
         else:
             transaction_data['external_id_1c'] = external_id
-            transaction_data['department_id'] = self.department_id
             transaction_data['transaction_type'] = BankTransactionTypeEnum.DEBIT
             transaction_data['import_source'] = 'ODATA_1C'
             transaction_data['imported_at'] = datetime.utcnow()
@@ -724,8 +732,6 @@ class BankTransaction1CImporter:
         )
 
         if organization:
-            if not organization.department_id:
-                organization.department_id = self.department_id
             return organization
 
         org_data = self.odata_client.get_organization_by_key(org_key)
@@ -757,8 +763,7 @@ class BankTransaction1CImporter:
             short_name=(org_data.get('НаименованиеСокращенное') or name)[:255],
             inn=org_data.get('ИНН'),
             kpp=org_data.get('КПП'),
-            external_id_1c=org_key,
-            department_id=self.department_id
+            external_id_1c=org_key
         )
 
         self.db.add(organization)
@@ -779,8 +784,6 @@ class BankTransaction1CImporter:
             organization.inn = org_data.get('ИНН')
         if org_data.get('КПП'):
             organization.kpp = org_data.get('КПП')
-        if not organization.department_id:
-            organization.department_id = self.department_id
 
     def _extract_guid_from_nav_link(self, link: Optional[str]) -> Optional[str]:
         """Извлечь GUID из navigationLinkUrl"""
@@ -803,7 +806,6 @@ class BankTransaction1CImporter:
                 counterparty_name=transaction.counterparty_name,
                 counterparty_inn=transaction.counterparty_inn,
                 amount=transaction.amount,
-                department_id=self.department_id,
                 transaction_type=transaction.transaction_type,
                 business_operation=transaction.business_operation
             )
@@ -833,8 +835,7 @@ class BankTransaction1CImporter:
             return
 
         existing = self.db.query(BusinessOperationMapping).filter(
-            BusinessOperationMapping.business_operation == business_operation,
-            BusinessOperationMapping.department_id == self.department_id
+            BusinessOperationMapping.business_operation == business_operation
         ).first()
 
         if existing:
@@ -843,7 +844,6 @@ class BankTransaction1CImporter:
         stub_mapping = BusinessOperationMapping(
             business_operation=business_operation,
             category_id=None,
-            department_id=self.department_id,
             priority=0,
             confidence=0.0,
             notes="Авто-создано при импорте из 1С - требуется назначить категорию вручную",
