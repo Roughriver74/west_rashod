@@ -8,6 +8,7 @@ import {
   SettingOutlined,
   LogoutOutlined,
   UserOutlined,
+  IdcardOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { ReactNode } from 'react'
@@ -45,6 +46,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
       key: '/organizations',
       icon: <TeamOutlined />,
       label: 'Организации',
+    },
+    {
+      key: '/contractors',
+      icon: <IdcardOutlined />,
+      label: 'Контрагенты',
     },
     {
       key: '/mappings',
