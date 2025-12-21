@@ -21,7 +21,8 @@ from app.schemas.bank_transaction import (
     CategorySuggestion, BankTransactionList, BankTransactionAnalytics,
     BankTransactionKPIs, MonthlyFlowData, DailyFlowData, CategoryBreakdown,
     CounterpartyBreakdown, ProcessingFunnelData, ProcessingFunnelStage,
-    AIPerformanceData, ConfidenceBracket, LowConfidenceItem
+    AIPerformanceData, ConfidenceBracket, LowConfidenceItem,
+    RegularPaymentPattern, RegularPaymentPatternList
 )
 from app.utils.auth import get_current_active_user
 from app.services.transaction_classifier import TransactionClassifier
@@ -847,7 +848,7 @@ async def import_from_excel(
 
 # ==================== Regular Patterns ====================
 
-@router.get("/regular-patterns")
+@router.get("/regular-patterns", response_model=RegularPaymentPatternList)
 def get_regular_patterns(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -856,6 +857,233 @@ def get_regular_patterns(
     from app.services.transaction_classifier import RegularPaymentDetector
 
     detector = RegularPaymentDetector(db)
-    patterns = detector.detect_patterns()
+    raw_patterns = detector.detect_patterns()
 
-    return patterns
+    # Convert to schema
+    patterns = [RegularPaymentPattern(**p) for p in raw_patterns]
+
+    monthly_count = len([p for p in patterns if p.is_monthly])
+    quarterly_count = len([p for p in patterns if p.is_quarterly])
+    other_count = len(patterns) - monthly_count - quarterly_count
+
+    return RegularPaymentPatternList(
+        patterns=patterns,
+        total_count=len(patterns),
+        monthly_count=monthly_count,
+        quarterly_count=quarterly_count,
+        other_count=other_count
+    )
+
+
+@router.post("/mark-regular-payments")
+def mark_regular_payments(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Mark transactions as regular payments based on detected patterns."""
+    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only ADMIN and MANAGER can mark regular payments"
+        )
+
+    from app.services.transaction_classifier import RegularPaymentDetector
+
+    detector = RegularPaymentDetector(db)
+    marked_count = detector.mark_regular_payments()
+
+    return {"message": f"Marked {marked_count} transactions as regular payments", "marked_count": marked_count}
+
+
+# ==================== Expense Linking ====================
+
+@router.get("/{transaction_id}/matching-expenses")
+def get_matching_expenses(
+    transaction_id: int,
+    threshold: float = Query(30.0, description="Minimum matching score"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get matching expense suggestions for a transaction."""
+    from app.services.expense_matching import ExpenseMatchingService
+
+    transaction = db.query(BankTransaction).filter(
+        BankTransaction.id == transaction_id,
+        BankTransaction.is_active == True
+    ).first()
+
+    if not transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found"
+        )
+
+    matching_service = ExpenseMatchingService(db)
+    suggestions = matching_service.find_matching_expenses(transaction, threshold=threshold)
+
+    return suggestions
+
+
+@router.put("/{transaction_id}/link")
+def link_to_expense(
+    transaction_id: int,
+    expense_id: int = Query(..., description="Expense ID to link to"),
+    notes: Optional[str] = Query(None, description="Optional notes"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Link transaction to an expense."""
+    from app.services.expense_matching import ExpenseMatchingService
+
+    transaction = db.query(BankTransaction).filter(
+        BankTransaction.id == transaction_id,
+        BankTransaction.is_active == True
+    ).first()
+
+    if not transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found"
+        )
+
+    if transaction.expense_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Transaction is already linked to an expense"
+        )
+
+    matching_service = ExpenseMatchingService(db)
+
+    try:
+        matching_service.link_transaction_to_expense(transaction_id, expense_id)
+
+        if notes:
+            transaction.notes = notes
+            db.commit()
+
+        return {"message": "Transaction linked successfully", "expense_id": expense_id}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.put("/{transaction_id}/unlink")
+def unlink_from_expense(
+    transaction_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Unlink transaction from expense."""
+    from app.db.models import Expense, ExpenseStatusEnum
+    from decimal import Decimal
+
+    transaction = db.query(BankTransaction).filter(
+        BankTransaction.id == transaction_id,
+        BankTransaction.is_active == True
+    ).first()
+
+    if not transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found"
+        )
+
+    if not transaction.expense_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Transaction is not linked to any expense"
+        )
+
+    # Get expense and update paid amount
+    expense = db.query(Expense).filter(Expense.id == transaction.expense_id).first()
+    if expense:
+        expense.amount_paid = (expense.amount_paid or Decimal("0")) - transaction.amount
+        if expense.amount_paid < 0:
+            expense.amount_paid = Decimal("0")
+
+        # Update status
+        if expense.amount_paid >= expense.amount:
+            expense.status = ExpenseStatusEnum.PAID
+        elif expense.amount_paid > 0:
+            expense.status = ExpenseStatusEnum.PARTIALLY_PAID
+        elif expense.status in [ExpenseStatusEnum.PAID, ExpenseStatusEnum.PARTIALLY_PAID]:
+            expense.status = ExpenseStatusEnum.APPROVED
+
+    # Unlink transaction
+    old_expense_id = transaction.expense_id
+    transaction.expense_id = None
+    transaction.matching_score = None
+    transaction.status = BankTransactionStatusEnum.CATEGORIZED
+
+    db.commit()
+
+    return {"message": "Transaction unlinked successfully", "old_expense_id": old_expense_id}
+
+
+@router.post("/bulk-link")
+def bulk_link_to_expenses(
+    links: List[dict],  # [{"transaction_id": 1, "expense_id": 10}, ...]
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Bulk link transactions to expenses."""
+    from app.services.expense_matching import ExpenseMatchingService
+
+    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only ADMIN and MANAGER can bulk link"
+        )
+
+    matching_service = ExpenseMatchingService(db)
+
+    linked_count = 0
+    errors = []
+
+    for link in links:
+        transaction_id = link.get("transaction_id")
+        expense_id = link.get("expense_id")
+
+        if not transaction_id or not expense_id:
+            errors.append({"link": link, "error": "Missing transaction_id or expense_id"})
+            continue
+
+        try:
+            matching_service.link_transaction_to_expense(transaction_id, expense_id)
+            linked_count += 1
+        except ValueError as e:
+            errors.append({"transaction_id": transaction_id, "expense_id": expense_id, "error": str(e)})
+
+    return {
+        "success": len(errors) == 0,
+        "linked_count": linked_count,
+        "errors": errors
+    }
+
+
+@router.post("/auto-match")
+def auto_match_transactions(
+    threshold: float = Query(70.0, description="Minimum matching score for auto-matching"),
+    limit: int = Query(100, description="Maximum number of transactions to process"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Automatically match unlinked transactions to expenses."""
+    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only ADMIN and MANAGER can run auto-matching"
+        )
+
+    from app.services.expense_matching import ExpenseMatchingService
+
+    matching_service = ExpenseMatchingService(db)
+    matched = matching_service.auto_match_transactions(threshold=threshold, limit=limit)
+
+    return {
+        "message": f"Auto-matched {len(matched)} transactions",
+        "matched_count": len(matched),
+        "matches": matched
+    }

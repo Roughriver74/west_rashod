@@ -6,6 +6,9 @@ import LoginPage from './pages/LoginPage'
 import AppLayout from './components/AppLayout'
 import DashboardPage from './pages/DashboardPage'
 import BankTransactionsPage from './pages/BankTransactionsPage'
+import AnalyticsPage from './pages/AnalyticsPage'
+import RegularPaymentsPage from './pages/RegularPaymentsPage'
+import ExpensesPage from './pages/ExpensesPage'
 import CategoriesPage from './pages/CategoriesPage'
 import OrganizationsPage from './pages/OrganizationsPage'
 import ContractorsPage from './pages/ContractorsPage'
@@ -42,6 +45,9 @@ function App() {
               <Routes>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/bank-transactions" element={<BankTransactionsPage />} />
+                <Route path="/analytics" element={<AnalyticsPage />} />
+                <Route path="/regular-payments" element={<RegularPaymentsPage />} />
+                <Route path="/expenses" element={<ExpensesPage />} />
                 <Route path="/categories" element={<CategoriesPage />} />
                 <Route path="/organizations" element={<OrganizationsPage />} />
                 <Route path="/contractors" element={<ContractorsPage />} />

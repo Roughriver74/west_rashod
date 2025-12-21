@@ -72,6 +72,25 @@ class DocumentTypeEnum(str, enum.Enum):
     OTHER = "OTHER"
 
 
+class ExpenseStatusEnum(str, enum.Enum):
+    """Expense request status."""
+    DRAFT = "DRAFT"                  # Черновик
+    PENDING = "PENDING"              # На согласовании
+    APPROVED = "APPROVED"            # Согласовано
+    REJECTED = "REJECTED"            # Отклонено
+    PAID = "PAID"                    # Оплачено
+    PARTIALLY_PAID = "PARTIALLY_PAID"  # Частично оплачено
+    CANCELLED = "CANCELLED"          # Отменено
+
+
+class ExpensePriorityEnum(str, enum.Enum):
+    """Expense priority."""
+    LOW = "LOW"
+    NORMAL = "NORMAL"
+    HIGH = "HIGH"
+    URGENT = "URGENT"
+
+
 # ============== MODELS ==============
 
 class Organization(Base):
@@ -186,6 +205,79 @@ class Contractor(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
+    # Relationships
+    expenses = relationship("Expense", back_populates="contractor_rel")
+
+
+class Expense(Base):
+    """Expense request model - заявка на расход."""
+    __tablename__ = "expenses"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Basic info
+    number = Column(String(50), unique=True, nullable=False, index=True)  # Номер заявки
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+
+    # Amounts
+    amount = Column(Numeric(15, 2), nullable=False)
+    amount_paid = Column(Numeric(15, 2), default=0)  # Уже оплачено
+    currency = Column(String(3), default="RUB")
+
+    # Dates
+    request_date = Column(Date, nullable=False, index=True)  # Дата заявки
+    due_date = Column(Date, nullable=True)  # Срок оплаты
+    payment_date = Column(Date, nullable=True)  # Фактическая дата оплаты
+
+    # Classification
+    category_id = Column(Integer, ForeignKey("budget_categories.id"), nullable=True, index=True)
+    expense_type = Column(Enum(ExpenseTypeEnum), nullable=True)  # OPEX/CAPEX
+
+    # Counterparty
+    contractor_id = Column(Integer, ForeignKey("contractors.id"), nullable=True, index=True)
+    contractor_name = Column(String(500), nullable=True)  # Denormalized for search
+    contractor_inn = Column(String(20), nullable=True, index=True)
+
+    # Organization
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+
+    # Status and workflow
+    status = Column(Enum(ExpenseStatusEnum), default=ExpenseStatusEnum.DRAFT, nullable=False, index=True)
+    priority = Column(Enum(ExpensePriorityEnum), default=ExpensePriorityEnum.NORMAL)
+
+    # Approval
+    requested_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+
+    # Documents
+    invoice_number = Column(String(100), nullable=True)
+    invoice_date = Column(Date, nullable=True)
+    contract_number = Column(String(100), nullable=True)
+
+    # Additional
+    notes = Column(Text, nullable=True)
+    payment_purpose = Column(Text, nullable=True)  # Назначение платежа
+
+    # 1C Integration
+    external_id_1c = Column(String(100), nullable=True, unique=True, index=True)
+
+    # System
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    category_rel = relationship("BudgetCategory")
+    contractor_rel = relationship("Contractor", back_populates="expenses")
+    organization_rel = relationship("Organization")
+    requested_by_rel = relationship("User", foreign_keys=[requested_by])
+    approved_by_rel = relationship("User", foreign_keys=[approved_by])
+    bank_transactions = relationship("BankTransaction", back_populates="expense_rel",
+                                     foreign_keys="BankTransaction.expense_id")
+
 
 class BankTransaction(Base):
     """Bank transaction model - main entity."""
@@ -226,6 +318,11 @@ class BankTransaction(Base):
     category_id = Column(Integer, ForeignKey("budget_categories.id"), nullable=True, index=True)
     category_confidence = Column(Numeric(5, 4), nullable=True)  # 0.0000 - 1.0000
     suggested_category_id = Column(Integer, ForeignKey("budget_categories.id"), nullable=True)
+
+    # Expense linking
+    expense_id = Column(Integer, ForeignKey("expenses.id"), nullable=True, index=True)
+    suggested_expense_id = Column(Integer, ForeignKey("expenses.id"), nullable=True)
+    matching_score = Column(Numeric(5, 2), nullable=True)  # 0.00 - 100.00
 
     # Status
     status = Column(Enum(BankTransactionStatusEnum),
@@ -278,6 +375,9 @@ class BankTransaction(Base):
                                          foreign_keys=[suggested_category_id])
     reviewed_by_rel = relationship("User", back_populates="reviewed_transactions",
                                   foreign_keys=[reviewed_by])
+    expense_rel = relationship("Expense", back_populates="bank_transactions",
+                              foreign_keys=[expense_id])
+    suggested_expense_rel = relationship("Expense", foreign_keys=[suggested_expense_id])
 
 
 class BusinessOperationMapping(Base):

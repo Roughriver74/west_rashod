@@ -9,6 +9,9 @@ import {
   LogoutOutlined,
   UserOutlined,
   IdcardOutlined,
+  LineChartOutlined,
+  ClockCircleOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { ReactNode } from 'react'
@@ -36,6 +39,21 @@ export default function AppLayout({ children }: AppLayoutProps) {
       key: '/bank-transactions',
       icon: <BankOutlined />,
       label: 'Банковские операции',
+    },
+    {
+      key: '/analytics',
+      icon: <LineChartOutlined />,
+      label: 'Аналитика',
+    },
+    {
+      key: '/regular-payments',
+      icon: <ClockCircleOutlined />,
+      label: 'Регулярные платежи',
+    },
+    {
+      key: '/expenses',
+      icon: <FileTextOutlined />,
+      label: 'Заявки на расходы',
     },
     {
       key: '/categories',

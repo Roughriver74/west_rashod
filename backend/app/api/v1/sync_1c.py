@@ -4,6 +4,7 @@ from typing import Optional
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -16,11 +17,25 @@ from app.schemas.sync import (
 from app.utils.auth import get_current_active_user
 from app.services.odata_1c_client import OData1CClient, create_1c_client_from_env
 from app.services.bank_transaction_1c_import import BankTransaction1CImporter
+from app.services.async_sync_service import AsyncSyncService
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sync-1c", tags=["1C Integration"])
+
+
+class AsyncSyncRequest(BaseModel):
+    """Request for async sync operation."""
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    auto_classify: bool = True
+
+
+class AsyncSyncResponse(BaseModel):
+    """Response with task ID for async operation."""
+    task_id: str
+    message: str
 
 
 @router.get("/test-connection", response_model=Sync1CConnectionTest)
@@ -324,3 +339,72 @@ def sync_categories(
             message=f"Sync failed: {str(e)}",
             errors=[str(e)]
         )
+
+
+# ============== ASYNC ENDPOINTS ==============
+
+
+@router.post("/bank-transactions/sync-async", response_model=AsyncSyncResponse)
+def start_async_bank_transactions_sync(
+    sync_request: AsyncSyncRequest,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Start async bank transactions sync (returns immediately with task ID)."""
+    logger.info(f"=== ASYNC SYNC BANK TRANSACTIONS START ===")
+    logger.info(f"User: {current_user.username}, Request: {sync_request}")
+
+    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins and managers can sync from 1C"
+        )
+
+    # Parse dates
+    if sync_request.date_from:
+        date_from = datetime.fromisoformat(sync_request.date_from.replace('Z', '+00:00')).date()
+    else:
+        date_from = date.today() - timedelta(days=30)
+
+    if sync_request.date_to:
+        date_to = datetime.fromisoformat(sync_request.date_to.replace('Z', '+00:00')).date()
+    else:
+        date_to = date.today()
+
+    # Start async task
+    task_id = AsyncSyncService.start_bank_transactions_sync(
+        date_from=date_from,
+        date_to=date_to,
+        auto_classify=sync_request.auto_classify,
+        user_id=current_user.id
+    )
+
+    logger.info(f"Started async sync task: {task_id}")
+
+    return AsyncSyncResponse(
+        task_id=task_id,
+        message=f"Sync started. Track progress at /api/v1/tasks/{task_id}"
+    )
+
+
+@router.post("/contractors/sync-async", response_model=AsyncSyncResponse)
+def start_async_contractors_sync(
+    current_user: User = Depends(get_current_active_user)
+):
+    """Start async contractors sync (returns immediately with task ID)."""
+    logger.info(f"=== ASYNC SYNC CONTRACTORS START ===")
+    logger.info(f"User: {current_user.username}")
+
+    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins and managers can sync from 1C"
+        )
+
+    task_id = AsyncSyncService.start_contractors_sync(user_id=current_user.id)
+
+    logger.info(f"Started async contractors sync task: {task_id}")
+
+    return AsyncSyncResponse(
+        task_id=task_id,
+        message=f"Contractors sync started. Track progress at /api/v1/tasks/{task_id}"
+    )

@@ -399,61 +399,112 @@ class BackgroundTaskManager:
 
 ## 7. РЕКОМЕНДУЕМЫЙ ПОРЯДОК РЕАЛИЗАЦИИ
 
-### Фаза 1: Базовая аналитика (1-2 дня)
-1. ✅ Добавить эндпоинт `/analytics` (УЖЕ СДЕЛАНО)
-2. ✅ Добавить KPI карточки на страницу транзакций (УЖЕ СДЕЛАНО)
-3. Создать отдельную страницу аналитики
+### Фаза 1: Базовая аналитика ✅ ЗАВЕРШЕНО
+1. ✅ Добавить эндпоинт `/analytics`
+2. ✅ Добавить KPI карточки на страницу транзакций
+3. ✅ Создать отдельную страницу аналитики с графиками recharts:
+   - ✅ CashFlowChart (BarChart)
+   - ✅ CategoryBreakdownChart (PieChart)
+   - ✅ ProcessingEfficiencyChart (BarChart)
+   - ✅ AIPerformanceChart (BarChart)
+   - ✅ TopCategoriesTable
+   - ✅ TopCounterpartiesTable
+   - ✅ LowConfidenceItemsTable
 
-### Фаза 2: Графики и визуализация (2-3 дня)
-1. Установить recharts: `npm install recharts`
-2. Создать компоненты графиков:
-   - CashFlowChart
-   - CategoryBreakdownChart
-   - ProcessingEfficiencyChart
+### Фаза 2: Регулярные платежи ✅ ЗАВЕРШЕНО
+1. ✅ RegularPaymentDetector уже существовал в transaction_classifier.py
+2. ✅ Добавлен эндпоинт GET /bank-transactions/regular-patterns
+3. ✅ Добавлен эндпоинт POST /bank-transactions/mark-regular-payments
+4. ✅ Добавлены схемы RegularPaymentPattern, RegularPaymentPatternList
+5. ✅ Создана страница RegularPaymentsPage.tsx с:
+   - Статистикой паттернов
+   - Таблицей с фильтрацией
+   - Кнопкой маркировки транзакций
 
-### Фаза 3: Расширенная функциональность (3-5 дней)
-1. Добавить модель Expense (если нет)
-2. Реализовать ExpenseMatchingService
-3. Добавить эндпоинты связывания
-4. Реализовать RegularPaymentDetector
+### Фаза 3: Связывание с расходами ✅ ЗАВЕРШЕНО
+1. ✅ Создана модель Expense с полным workflow (DRAFT → PENDING → APPROVED → PAID)
+2. ✅ Созданы схемы expense.py (ExpenseCreate, ExpenseUpdate, MatchingSuggestion и др.)
+3. ✅ Реализован ExpenseMatchingService с алгоритмом сопоставления:
+   - Совпадение суммы (40% веса)
+   - Близость даты (20% веса)
+   - Совпадение контрагента по ИНН/названию (30% веса)
+   - Совпадение назначения платежа (10% веса)
+4. ✅ Добавлены эндпоинты связывания:
+   - GET /bank-transactions/{id}/matching-expenses
+   - PUT /bank-transactions/{id}/link
+   - PUT /bank-transactions/{id}/unlink
+   - POST /bank-transactions/bulk-link
+   - POST /bank-transactions/auto-match
+5. ✅ Созданы API эндпоинты для расходов:
+   - CRUD операции (/expenses)
+   - Workflow: submit, approve/reject
+   - Статистика и фильтрация
+6. ✅ Создана страница ExpensesPage.tsx с:
+   - Статистикой расходов
+   - Таблицей с фильтрами
+   - Модалками создания/редактирования
+   - Drawer с деталями и прогрессом оплаты
+   - Согласованием/отклонением заявок
 
-### Фаза 4: Фоновые задачи (2-3 дня)
-1. Добавить Celery или asyncio для фоновых задач
-2. Реализовать BackgroundTaskManager
-3. Добавить эндпоинты статуса задач
-4. Добавить WebSocket для real-time обновлений
+### Фаза 4: Фоновые задачи ✅ ЗАВЕРШЕНО
+1. ✅ Реализован asyncio для фоновых задач (BackgroundTaskManager)
+2. ✅ Создан сервис background_tasks.py с:
+   - TaskInfo dataclass для хранения состояния
+   - Singleton BackgroundTaskManager
+   - Методы: create_task, update_progress, complete_task, fail_task, cancel_task
+   - Подписки на обновления (subscribe/unsubscribe)
+3. ✅ Создан async_sync_service.py для асинхронной синхронизации с 1С
+4. ✅ Добавлены API эндпоинты статуса задач:
+   - GET /tasks/{task_id} - статус задачи
+   - GET /tasks - список задач
+   - POST /tasks/{task_id}/cancel - отмена задачи
+5. ✅ Добавлены async эндпоинты синхронизации:
+   - POST /sync-1c/bank-transactions/sync-async
+   - POST /sync-1c/contractors/sync-async
+6. ✅ Добавлен WebSocket для real-time обновлений:
+   - WS /ws/tasks/{task_id} - обновления конкретной задачи
+   - WS /ws/tasks - обновления всех задач
+7. ✅ Созданы фронтенд компоненты:
+   - TaskProgress.tsx - модалка с прогрессом
+   - SyncModal.tsx - модалка запуска синхронизации
+   - tasks.ts API с WebSocket классом
 
 ---
 
 ## 8. ТЕХНИЧЕСКИЙ ДОЛГ
 
 ### Критический:
-- [ ] Отсутствует expense_id в модели BankTransaction
-- [ ] Нет связи транзакций с заявками на расходы
+- [x] ~~Отсутствует expense_id в модели BankTransaction~~ ✅ Добавлено
+- [x] ~~Нет связи транзакций с заявками на расходы~~ ✅ Реализовано
 
 ### Высокий:
-- [ ] Нет фоновой обработки для больших импортов
-- [ ] Отсутствует детектор регулярных платежей
+- [x] ~~Нет фоновой обработки для больших импортов~~ ✅ Реализовано (asyncio + WebSocket)
+- [x] ~~Отсутствует детектор регулярных платежей~~ ✅ Реализовано
 
 ### Средний:
-- [ ] Нет страницы аналитики
-- [ ] Отсутствуют графики
+- [x] ~~Нет страницы аналитики~~ ✅ Создана AnalyticsPage
+- [x] ~~Отсутствуют графики~~ ✅ Добавлены графики recharts
 
 ### Низкий:
-- [ ] Расширенная фильтрация
-- [ ] Экспорт данных
+- [x] ~~Расширенная фильтрация~~ ✅ Добавлена в ExpensesPage
+- [ ] Экспорт данных (частично реализован в AnalyticsPage)
 
 ---
 
 ## ИТОГО
 
-**Реализовано:** ~35%
-**Осталось:** ~65%
+**Реализовано:** ~95%
+**Осталось:** ~5% (мелкие улучшения)
 
-**Основные пробелы:**
-1. Связь с расходами (expenses)
-2. Детальная аналитика и графики
-3. Регулярные платежи
-4. Фоновая обработка
+**Выполнено:**
+1. ✅ Детальная аналитика и графики (AnalyticsPage)
+2. ✅ Регулярные платежи (RegularPaymentsPage)
+3. ✅ Связь с расходами (ExpensesPage, ExpenseMatchingService)
+4. ✅ Фоновая обработка (asyncio + WebSocket + TaskProgress)
 
-**Рекомендация:** Сначала реализовать страницу аналитики и графики, так как backend уже готов.
+**Остающиеся мелкие улучшения:**
+1. ⏳ Расширенный экспорт данных в различные форматы
+2. ⏳ Интеграция SyncModal в интерфейс (добавить кнопку в header)
+3. ⏳ Уведомления о завершении фоновых задач
+
+**Проект готов к использованию!**

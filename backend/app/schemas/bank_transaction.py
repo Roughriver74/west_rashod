@@ -344,3 +344,42 @@ class BankTransactionAnalytics(BaseModel):
     processing_funnel: ProcessingFunnelData
     ai_performance: AIPerformanceData
     low_confidence_items: List[LowConfidenceItem]
+
+
+# ==================== Regular Payment Patterns ====================
+
+class RegularPaymentPattern(BaseModel):
+    """Detected regular payment pattern."""
+    counterparty_inn: Optional[str] = None
+    counterparty_name: Optional[str] = None
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    avg_amount: float
+    frequency_days: int
+    last_payment_date: str
+    transaction_count: int
+    is_monthly: bool = False
+    is_quarterly: bool = False
+
+    @property
+    def frequency_label(self) -> str:
+        """Human-readable frequency label."""
+        if self.is_monthly:
+            return "Ежемесячно"
+        elif self.is_quarterly:
+            return "Ежеквартально"
+        elif self.frequency_days <= 7:
+            return "Еженедельно"
+        elif self.frequency_days <= 14:
+            return "Раз в 2 недели"
+        else:
+            return f"Каждые {self.frequency_days} дней"
+
+
+class RegularPaymentPatternList(BaseModel):
+    """List of regular payment patterns."""
+    patterns: List[RegularPaymentPattern]
+    total_count: int
+    monthly_count: int
+    quarterly_count: int
+    other_count: int

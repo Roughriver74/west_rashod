@@ -32,6 +32,9 @@ from app.api.v1.organizations import router as organizations_router
 from app.api.v1.contractors import router as contractors_router
 from app.api.v1.users import router as users_router
 from app.api.v1.sync_1c import router as sync_1c_router
+from app.api.v1.expenses import router as expenses_router
+from app.api.v1.tasks import router as tasks_router
+from app.api.v1.websocket import router as websocket_router
 
 
 @asynccontextmanager
@@ -106,12 +109,15 @@ def root():
 # Include routers with API prefix
 app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(bank_transactions_router, prefix=settings.API_PREFIX)
+app.include_router(expenses_router, prefix=settings.API_PREFIX)
 app.include_router(mappings_router, prefix=settings.API_PREFIX)
 app.include_router(categories_router, prefix=settings.API_PREFIX)
 app.include_router(organizations_router, prefix=settings.API_PREFIX)
 app.include_router(contractors_router, prefix=settings.API_PREFIX)
 app.include_router(users_router, prefix=settings.API_PREFIX)
 app.include_router(sync_1c_router, prefix=settings.API_PREFIX)
+app.include_router(tasks_router, prefix=settings.API_PREFIX)
+app.include_router(websocket_router, prefix=settings.API_PREFIX)
 
 
 if __name__ == "__main__":

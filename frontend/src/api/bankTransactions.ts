@@ -209,3 +209,35 @@ export const updateTransaction = async (id: number, data: Partial<BankTransactio
   const response = await apiClient.put(`/bank-transactions/${id}`, data)
   return response.data
 }
+
+// Regular Payment Patterns
+export interface RegularPaymentPattern {
+  counterparty_inn: string | null
+  counterparty_name: string | null
+  category_id: number | null
+  category_name: string | null
+  avg_amount: number
+  frequency_days: number
+  last_payment_date: string
+  transaction_count: number
+  is_monthly: boolean
+  is_quarterly: boolean
+}
+
+export interface RegularPaymentPatternList {
+  patterns: RegularPaymentPattern[]
+  total_count: number
+  monthly_count: number
+  quarterly_count: number
+  other_count: number
+}
+
+export const getRegularPatterns = async (): Promise<RegularPaymentPatternList> => {
+  const response = await apiClient.get('/bank-transactions/regular-patterns')
+  return response.data
+}
+
+export const markRegularPayments = async (): Promise<{ message: string; marked_count: number }> => {
+  const response = await apiClient.post('/bank-transactions/mark-regular-payments')
+  return response.data
+}
