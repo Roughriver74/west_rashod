@@ -13,7 +13,7 @@
       "subtasks": [
         {
           "id": "subtask-1-1",
-          "description": "Add handleDeletePattern function and \u0423\u0434\u0430\u043b\u0438\u0442\u044c button to both counterpartyColumns and operationColumns, with pattern filtering logic to hide deleted patterns",
+          "description": "Add handleDeletePattern function and Удалить button to both counterpartyColumns and operationColumns, with pattern filtering logic to hide deleted patterns",
           "service": "frontend",
           "status": "completed",
           "files_to_create": [],
@@ -25,9 +25,9 @@
           ],
           "verification": {
             "type": "manual",
-            "run": "Open CategorizationRulesPage, go to patterns tab, verify \u0423\u0434\u0430\u043b\u0438\u0442\u044c button is visible and works"
+            "run": "Open CategorizationRulesPage, go to patterns tab, verify Удалить button is visible and works"
           },
-          "notes": "Implemented handleDeletePattern function with deletion marker \"\ud83d\uddd1\ufe0f \u0423\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0439 \u043f\u0430\u0442\u0442\u0435\u0440\u043d\", added filtering logic using useMemo to hide deleted patterns, and added \"\u0423\u0434\u0430\u043b\u0438\u0442\u044c\" button with DeleteOutlined icon and Popconfirm to both counterpartyColumns and operationColumns. Also added required API files and route configuration.",
+          "notes": "Implemented handleDeletePattern function with deletion marker \"🗑️ Удалённый паттерн\", added filtering logic using useMemo to hide deleted patterns, and added \"Удалить\" button with DeleteOutlined icon and Popconfirm to both counterpartyColumns and operationColumns. Also added required API files and route configuration.",
           "updated_at": "2025-12-21T14:06:51.861787+00:00"
         }
       ]
@@ -67,5 +67,8 @@
     "last_iteration": 1,
     "last_status": "approved",
     "issues_by_type": {}
-  }
+  },
+  "updated_at": "2025-12-21T14:14:29.073Z",
+  "stagedAt": "2025-12-21T14:14:29.073Z",
+  "stagedInMainProject": true
 }

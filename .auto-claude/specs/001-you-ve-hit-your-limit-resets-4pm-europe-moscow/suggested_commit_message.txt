@@ -1,0 +1,3 @@
+feat(patterns): add delete button for auto-detected patterns
+
+Add delete functionality to remove unwanted auto-detected patterns from counterparty and operation pattern tables. Users can now delete patterns that are auto-computed from historical data, providing better control over pattern management.
