@@ -1,0 +1,9 @@
+{
+  "task_description": "Add Russian language support to the autoclaude project for responses and task descriptions. Configure CLAUDE.md to make Claude respond in Russian language.",
+  "scoped_services": ["main"],
+  "files_to_modify": [],
+  "files_to_reference": [],
+  "patterns": {},
+  "service_contexts": {},
+  "created_at": "2025-12-21T17:26:53.557Z"
+}
