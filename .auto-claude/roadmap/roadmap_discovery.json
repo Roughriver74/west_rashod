@@ -1,0 +1,141 @@
+{
+  "project_name": "West Rashod",
+  "project_type": "web-app",
+  "tech_stack": {
+    "primary_language": "TypeScript/Python",
+    "frameworks": ["React", "FastAPI", "Ant Design", "SQLAlchemy"],
+    "key_dependencies": [
+      "@tanstack/react-query",
+      "recharts",
+      "antd",
+      "axios",
+      "dayjs",
+      "xlsx",
+      "fastapi",
+      "uvicorn",
+      "sqlalchemy",
+      "alembic",
+      "psycopg2-binary",
+      "redis",
+      "python-jose",
+      "passlib",
+      "pandas",
+      "openpyxl"
+    ]
+  },
+  "target_audience": {
+    "primary_persona": "Russian SME Finance/Accounting Teams managing corporate bank transactions and expenses, typically working with 1C ERP systems",
+    "secondary_personas": [
+      "Business owners/founders needing expense visibility and approval control",
+      "Accountants reconciling bank statements with internal expense records",
+      "Finance managers analyzing spending patterns and cash flow"
+    ],
+    "pain_points": [
+      "Manual categorization of bank transactions is time-consuming and error-prone",
+      "Difficulty matching bank transactions to expense requests/invoices",
+      "Lack of real-time visibility into company spending by category",
+      "Disconnected data between bank statements and 1C ERP system",
+      "No centralized approval workflow for expense requests",
+      "Inconsistent categorization across different team members",
+      "Time-consuming Excel-based reporting and analysis"
+    ],
+    "goals": [
+      "Automate bank transaction categorization using intelligent rules",
+      "Streamline expense request and approval workflow",
+      "Get real-time insights into spending patterns by category, counterparty, and time period",
+      "Synchronize data seamlessly with 1C ERP system",
+      "Reduce manual reconciliation effort between bank and internal records",
+      "Generate accurate financial reports quickly"
+    ],
+    "usage_context": "Daily use by finance/accounting staff during business hours, with periodic heavy use during month-end/quarter-end reporting. Accessed via desktop web browser in office environment."
+  },
+  "product_vision": {
+    "one_liner": "Intelligent bank transaction and expense management platform for Russian businesses using 1C ERP",
+    "problem_statement": "Russian SME finance teams spend excessive time manually categorizing bank transactions, reconciling with expense records, and generating reports. The disconnect between bank data and 1C ERP creates inefficiencies and errors.",
+    "value_proposition": "West Rashod automates bank transaction categorization using intelligent rules, seamlessly syncs with 1C ERP, and provides real-time analytics - reducing manual work by 70% and improving financial visibility.",
+    "success_metrics": [
+      "Transaction auto-categorization rate > 80%",
+      "Time spent on monthly reconciliation reduced by 50%+",
+      "User adoption rate (daily active users / total users)",
+      "Expense approval cycle time reduced by 40%",
+      "User satisfaction score (NPS)",
+      "Data sync reliability with 1C (uptime %)"
+    ]
+  },
+  "current_state": {
+    "maturity": "mvp",
+    "existing_features": [
+      "User authentication (JWT-based with roles: Admin, Founder, Manager, Accountant, HR, User, Requester)",
+      "Bank transaction management (CRUD, import, bulk operations)",
+      "Bank transaction categorization (manual and rule-based)",
+      "Categorization rules engine (by counterparty INN, name, business operation, keyword)",
+      "Expense request management with approval workflow (Draft, Pending, Approved, Rejected, Paid statuses)",
+      "Budget category management (hierarchical with OPEX/CAPEX types)",
+      "Organization management (with 1C integration fields)",
+      "Contractor management",
+      "1C ERP synchronization (OData API - bank transactions, organizations, categories, contractors)",
+      "Analytics dashboard with charts (cash flow, category breakdown, counterparty analysis)",
+      "Transaction matching to expenses (manual and auto-match)",
+      "Regular payment pattern detection",
+      "Excel export support",
+      "WebSocket support for real-time updates",
+      "Sync settings management (auto-sync scheduling)",
+      "Task/background job management with progress tracking"
+    ],
+    "known_gaps": [
+      "Export functionality not fully implemented (TODO in analytics page)",
+      "No test coverage (tests directory is empty)",
+      "No mobile-responsive design mentioned",
+      "No multi-language support (currently Russian-focused)",
+      "No email notifications for approvals",
+      "No budget planning/forecasting features",
+      "No audit trail/activity log visible in UI",
+      "No document attachment support for expenses"
+    ],
+    "technical_debt": [
+      "Empty test directory - no unit or integration tests",
+      "Some database models in venv test files appear in project index (indexing issue)",
+      "No documented API versioning strategy beyond v1",
+      "Missing comprehensive error handling documentation"
+    ]
+  },
+  "competitive_context": {
+    "alternatives": [
+      "1C:Accounting (native 1C modules)",
+      "Kontur.Elba (Russian SME accounting)",
+      "MyBusiness (Moe Delo)",
+      "Tinkoff Business accounting tools",
+      "Manual Excel-based workflows"
+    ],
+    "differentiators": [
+      "Deep 1C ERP integration via OData (not a replacement, but a complement)",
+      "Intelligent auto-categorization rules engine",
+      "Purpose-built for bank transaction reconciliation",
+      "Modern web UI with real-time analytics",
+      "Expense approval workflow integrated with bank transactions"
+    ],
+    "market_position": "Specialized B2B SaaS tool for Russian SMEs already using 1C ERP, positioned as a modern analytics and workflow layer on top of bank/1C data rather than a full accounting replacement",
+    "competitor_pain_points": [],
+    "competitor_analysis_available": false
+  },
+  "constraints": {
+    "technical": [
+      "Requires 1C ERP with OData API access enabled",
+      "PostgreSQL database dependency",
+      "Redis required for caching/async tasks",
+      "Must maintain compatibility with various 1C versions",
+      "Internal network access needed for 1C sync (based on IP configuration)"
+    ],
+    "resources": [
+      "Appears to be solo developer project (single contributor in git history)",
+      "Early-stage with limited development history (9 commits)",
+      "No dedicated QA or test infrastructure"
+    ],
+    "dependencies": [
+      "1C ERP OData API availability and configuration",
+      "Bank transaction data quality from source systems",
+      "Network connectivity to internal 1C server"
+    ]
+  },
+  "created_at": "2025-12-21T12:45:00Z"
+}

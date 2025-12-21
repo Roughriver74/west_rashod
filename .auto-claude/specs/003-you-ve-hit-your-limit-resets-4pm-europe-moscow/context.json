@@ -1,0 +1,42 @@
+{
+  "task_description": "Integrate auto-sync settings visibility and quick toggle into the main Sync1CPage to provide unified sync management experience",
+  "scoped_services": ["frontend"],
+  "files_to_modify": {
+    "frontend": [
+      "frontend/src/pages/Sync1CPage.tsx"
+    ]
+  },
+  "files_to_reference": {
+    "frontend": [
+      "frontend/src/pages/SyncSettingsPage.tsx",
+      "frontend/src/api/syncSettings.ts"
+    ]
+  },
+  "patterns": {
+    "card_layout": "Card with Space + icon in title, vertical spacing for content, full width",
+    "status_display": "Tag component with icon and semantic colors (success/error/processing)",
+    "data_fetching": "@tanstack/react-query v5 with queryKey, queryFn, useMutation with onSuccess",
+    "form_controls": "Form.useForm(), Switch with checkedChildren/unCheckedChildren",
+    "date_formatting": "dayjs with format('DD.MM.YYYY HH:mm:ss')"
+  },
+  "existing_implementations": {
+    "sync_settings_page": "frontend/src/pages/SyncSettingsPage.tsx - Full settings form with toggle, interval/time mode",
+    "sync_settings_api": "frontend/src/api/syncSettings.ts - getSettings, updateSettings, triggerSyncNow",
+    "sync_1c_page": "frontend/src/pages/Sync1CPage.tsx - Manual sync controls with Card layout"
+  },
+  "api_endpoints": {
+    "get_settings": "GET /sync-settings",
+    "update_settings": "PUT /sync-settings",
+    "trigger_sync": "POST /sync-settings/trigger-now"
+  },
+  "types": {
+    "SyncSettings": "id, auto_sync_enabled, sync_interval_hours, sync_time_hour, sync_time_minute, auto_classify, sync_days_back, last_sync_*, created_at, updated_at",
+    "SyncSettingsUpdate": "Optional fields for updating settings"
+  },
+  "ui_requirements": {
+    "language": "Russian",
+    "components": ["Card", "Space", "Tag", "Switch", "Button", "Alert", "Typography", "Row", "Col", "Divider"],
+    "icons": ["SettingOutlined", "ClockCircleOutlined", "CheckCircleOutlined", "CloseCircleOutlined", "LoadingOutlined", "SyncOutlined"]
+  },
+  "created_at": "2025-12-21T17:01:24.372150"
+}

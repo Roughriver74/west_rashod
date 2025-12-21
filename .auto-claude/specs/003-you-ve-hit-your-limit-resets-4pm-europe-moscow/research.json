@@ -1,0 +1,428 @@
+{
+  "integrations_researched": [
+    {
+      "name": "Ant Design (antd)",
+      "type": "library",
+      "verified_package": {
+        "name": "antd",
+        "install_command": "npm install antd",
+        "version": "^5.14.0",
+        "verified": true
+      },
+      "api_patterns": {
+        "imports": [
+          "import { Form, Switch, InputNumber, Button, Radio, Card, Space, Typography, Divider, message, Alert, Spin, Tag, Row, Col } from 'antd'",
+          "import { SyncOutlined, ClockCircleOutlined, SettingOutlined, CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined } from '@ant-design/icons'"
+        ],
+        "initialization": "const [form] = Form.useForm();",
+        "key_functions": [
+          "Form.useForm() - creates FormInstance for programmatic control",
+          "form.setFieldsValue(values) - set multiple field values",
+          "form.resetFields() - reset to initialValues",
+          "form.validateFields() - trigger validation",
+          "Form.Item - wrapper for form controls with validation"
+        ],
+        "verified_against": "Context7 MCP: /ant-design/ant-design"
+      },
+      "configuration": {
+        "env_vars": [],
+        "config_files": [],
+        "dependencies": ["@ant-design/icons"]
+      },
+      "infrastructure": {
+        "requires_docker": false
+      },
+      "gotchas": [
+        "Form initialValues has priority over Form.Item initialValue",
+        "Use Form-level initialValues for static initial values",
+        "Item-level initialValue only for dynamic field scenarios"
+      ],
+      "existing_usage": {
+        "file": "frontend/src/pages/SyncSettingsPage.tsx",
+        "note": "Sync settings page already exists with form controls for auto sync configuration"
+      },
+      "research_sources": [
+        "Context7 MCP: /ant-design/ant-design",
+        "Project file: frontend/package.json"
+      ]
+    },
+    {
+      "name": "Celery",
+      "type": "library",
+      "verified_package": {
+        "name": "celery",
+        "install_command": "pip install celery",
+        "version": ">=5.0.0",
+        "verified": true
+      },
+      "api_patterns": {
+        "imports": [
+          "from celery import Celery",
+          "from celery.schedules import crontab, schedule",
+          "from celery.result import AsyncResult"
+        ],
+        "initialization": "celery_app = Celery('app_name', broker='redis://localhost:6379/0')",
+        "key_functions": [
+          "celery_app.task(name='task_name') - decorator to define a task",
+          "@app.on_after_configure.connect - setup periodic tasks",
+          "sender.add_periodic_task(interval, task.s(args)) - add periodic task",
+          "crontab(hour=X, minute=Y) - cron-style scheduling",
+          "schedule(run_every=timedelta(hours=X)) - interval scheduling",
+          "task.delay(*args) - execute task asynchronously",
+          "AsyncResult(task_id) - get task result"
+        ],
+        "verified_against": "Context7 MCP: /celery/celery"
+      },
+      "configuration": {
+        "env_vars": [
+          "REDIS_HOST - Redis server host",
+          "REDIS_PORT - Redis server port"
+        ],
+        "config_files": [],
+        "dependencies": ["redis"]
+      },
+      "infrastructure": {
+        "requires_docker": true,
+        "docker_image": "redis:latest",
+        "ports": [6379],
+        "notes": "Requires Redis as message broker"
+      },
+      "gotchas": [
+        "beat_schedule is configured at startup - dynamic changes require restart or database scheduler",
+        "Task serializer defaults to JSON - ensure arguments are JSON serializable",
+        "Celery Beat process needed for periodic tasks: celery -A app beat"
+      ],
+      "existing_usage": {
+        "file": "backend/app/celery_app.py",
+        "note": "Celery is fully configured with beat schedule and sync task"
+      },
+      "critical_issue": {
+        "problem": "Celery is used in code but NOT listed in requirements.txt",
+        "impact": "Installation will fail without celery package",
+        "resolution": "Add 'celery>=5.3.0' to backend/requirements.txt"
+      },
+      "research_sources": [
+        "Context7 MCP: /celery/celery",
+        "Project file: backend/app/celery_app.py"
+      ]
+    },
+    {
+      "name": "APScheduler",
+      "type": "library",
+      "verified_package": {
+        "name": "apscheduler",
+        "install_command": "pip install apscheduler",
+        "version": "3.10.4",
+        "verified": true
+      },
+      "api_patterns": {
+        "imports": [
+          "from apscheduler import Scheduler, AsyncScheduler",
+          "from apscheduler.triggers.interval import IntervalTrigger",
+          "from apscheduler.triggers.cron import CronTrigger"
+        ],
+        "initialization": "scheduler = Scheduler()",
+        "key_functions": [
+          "scheduler.add_schedule(func, trigger, id='name') - add scheduled job",
+          "IntervalTrigger(hours=X) - interval-based trigger",
+          "CronTrigger(hour=X, minute=Y) - cron-style trigger",
+          "CronTrigger.from_crontab('*/15 * * * *') - crontab syntax",
+          "scheduler.pause_schedule(id) - pause a schedule",
+          "scheduler.remove_schedule(id) - remove a schedule"
+        ],
+        "verified_against": "Context7 MCP: /agronholm/apscheduler"
+      },
+      "configuration": {
+        "env_vars": [],
+        "config_files": [],
+        "dependencies": []
+      },
+      "infrastructure": {
+        "requires_docker": false
+      },
+      "gotchas": [
+        "APScheduler 4.x has different API than 3.x - project uses 3.10.4",
+        "For distributed systems, use Redis or database event broker",
+        "Job stores can be memory, SQLAlchemy, or Redis"
+      ],
+      "existing_usage": {
+        "file": "backend/requirements.txt",
+        "note": "Listed in requirements but Celery is used for actual scheduling in celery_app.py"
+      },
+      "research_sources": [
+        "Context7 MCP: /agronholm/apscheduler",
+        "Project file: backend/requirements.txt"
+      ]
+    },
+    {
+      "name": "TanStack React Query",
+      "type": "library",
+      "verified_package": {
+        "name": "@tanstack/react-query",
+        "install_command": "npm install @tanstack/react-query",
+        "version": "^5.17.0",
+        "verified": true
+      },
+      "api_patterns": {
+        "imports": [
+          "import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'"
+        ],
+        "initialization": "const queryClient = useQueryClient()",
+        "key_functions": [
+          "useQuery({ queryKey, queryFn }) - fetch data",
+          "useMutation({ mutationFn, onSuccess }) - modify data",
+          "queryClient.invalidateQueries({ queryKey }) - invalidate cache",
+          "queryClient.setQueryData(queryKey, data) - update cache directly"
+        ],
+        "verified_against": "Context7 MCP: /tanstack/query"
+      },
+      "configuration": {
+        "env_vars": [],
+        "config_files": [],
+        "dependencies": []
+      },
+      "infrastructure": {
+        "requires_docker": false
+      },
+      "gotchas": [
+        "v5 has breaking changes from v4 - ensure using v5 patterns",
+        "Mutations don't retry by default - set retry option if needed",
+        "Query cache can become stale - configure staleTime appropriately"
+      ],
+      "existing_usage": {
+        "file": "frontend/package.json",
+        "note": "Installed but not heavily used in sync settings page - direct axios calls used instead"
+      },
+      "research_sources": [
+        "Context7 MCP: /tanstack/query",
+        "Project file: frontend/package.json"
+      ]
+    },
+    {
+      "name": "FastAPI",
+      "type": "library",
+      "verified_package": {
+        "name": "fastapi",
+        "install_command": "pip install fastapi",
+        "version": "0.115.6",
+        "verified": true
+      },
+      "api_patterns": {
+        "imports": [
+          "from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks",
+          "from pydantic import BaseModel, Field"
+        ],
+        "initialization": "router = APIRouter(prefix='/sync-settings', tags=['Sync Settings'])",
+        "key_functions": [
+          "@router.get('/', response_model=Schema) - GET endpoint",
+          "@router.put('/', response_model=Schema) - PUT endpoint",
+          "@router.post('/action') - POST endpoint",
+          "Depends(get_db) - dependency injection",
+          "BackgroundTasks - for async operations"
+        ],
+        "verified_against": "Context7 MCP: /fastapi/fastapi"
+      },
+      "configuration": {
+        "env_vars": [],
+        "config_files": [],
+        "dependencies": ["uvicorn", "pydantic", "starlette"]
+      },
+      "infrastructure": {
+        "requires_docker": false
+      },
+      "gotchas": [
+        "BackgroundTasks should create own resources (DB sessions) - don't reuse from dependencies",
+        "Since FastAPI 0.106.0+, pass IDs to background tasks instead of objects"
+      ],
+      "existing_usage": {
+        "file": "backend/app/api/v1/sync_settings.py",
+        "note": "Full sync settings API already implemented"
+      },
+      "research_sources": [
+        "Context7 MCP: /fastapi/fastapi",
+        "Project file: backend/requirements.txt"
+      ]
+    },
+    {
+      "name": "Axios",
+      "type": "library",
+      "verified_package": {
+        "name": "axios",
+        "install_command": "npm install axios",
+        "version": "^1.6.5",
+        "verified": true
+      },
+      "api_patterns": {
+        "imports": [
+          "import axios from 'axios'"
+        ],
+        "initialization": "const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'",
+        "key_functions": [
+          "axios.get(url) - GET request",
+          "axios.put(url, data) - PUT request",
+          "axios.post(url, data) - POST request"
+        ],
+        "verified_against": "Project usage patterns"
+      },
+      "configuration": {
+        "env_vars": ["VITE_API_URL - API base URL"],
+        "config_files": [],
+        "dependencies": []
+      },
+      "infrastructure": {
+        "requires_docker": false
+      },
+      "gotchas": [],
+      "existing_usage": {
+        "file": "frontend/src/api/syncSettings.ts",
+        "note": "API client for sync settings fully implemented"
+      },
+      "research_sources": [
+        "Project file: frontend/src/api/syncSettings.ts"
+      ]
+    },
+    {
+      "name": "dayjs",
+      "type": "library",
+      "verified_package": {
+        "name": "dayjs",
+        "install_command": "npm install dayjs",
+        "version": "^1.11.10",
+        "verified": true
+      },
+      "api_patterns": {
+        "imports": [
+          "import dayjs from 'dayjs'"
+        ],
+        "key_functions": [
+          "dayjs(date).format('DD.MM.YYYY HH:mm:ss') - format date"
+        ],
+        "verified_against": "Project usage patterns"
+      },
+      "configuration": {
+        "env_vars": [],
+        "config_files": [],
+        "dependencies": []
+      },
+      "infrastructure": {
+        "requires_docker": false
+      },
+      "gotchas": [],
+      "existing_usage": {
+        "file": "frontend/src/pages/SyncSettingsPage.tsx",
+        "note": "Used for formatting sync timestamps"
+      },
+      "research_sources": [
+        "Project file: frontend/package.json"
+      ]
+    },
+    {
+      "name": "Redis",
+      "type": "infrastructure",
+      "verified_package": {
+        "name": "redis",
+        "install_command": "pip install redis",
+        "version": "5.2.1",
+        "verified": true
+      },
+      "api_patterns": {
+        "imports": [],
+        "initialization": "Used as Celery broker via URL",
+        "key_functions": [],
+        "verified_against": "Project configuration"
+      },
+      "configuration": {
+        "env_vars": [
+          "REDIS_HOST - Redis server hostname",
+          "REDIS_PORT - Redis server port (default 6379)",
+          "USE_REDIS - Boolean to enable Redis"
+        ],
+        "config_files": [],
+        "dependencies": []
+      },
+      "infrastructure": {
+        "requires_docker": true,
+        "docker_image": "redis:latest",
+        "ports": [6379],
+        "volumes": []
+      },
+      "gotchas": [
+        "Required for Celery task queue functionality",
+        "Memory-based broker used as fallback when Redis not available"
+      ],
+      "existing_usage": {
+        "file": "backend/app/celery_app.py",
+        "note": "Configured as Celery broker and result backend"
+      },
+      "research_sources": [
+        "Project file: backend/requirements.txt",
+        "Project file: backend/app/celery_app.py"
+      ]
+    }
+  ],
+  "unverified_claims": [
+    {
+      "claim": "Celery package requirement in requirements.txt",
+      "reason": "Celery is imported and used in celery_app.py but NOT listed in requirements.txt",
+      "risk_level": "high",
+      "resolution": "Add 'celery>=5.3.0' to backend/requirements.txt"
+    }
+  ],
+  "existing_implementation_analysis": {
+    "sync_settings_page_exists": true,
+    "location": "frontend/src/pages/SyncSettingsPage.tsx",
+    "current_features": [
+      "Auto sync enable/disable toggle (Switch component)",
+      "Sync mode selection: 'interval' or 'time' (Radio.Group)",
+      "Sync interval hours configuration (InputNumber, 1-24)",
+      "Specific time configuration: hour (0-23) and minute (0-59)",
+      "Sync days back setting (1-365 days)",
+      "Auto classify toggle",
+      "Manual sync trigger button",
+      "Last sync status display",
+      "Sync progress and result display"
+    ],
+    "backend_api_exists": true,
+    "backend_location": "backend/app/api/v1/sync_settings.py",
+    "api_endpoints": [
+      "GET /sync-settings - Get current settings",
+      "PUT /sync-settings - Update settings",
+      "POST /sync-settings/trigger-now - Manual sync trigger",
+      "GET /sync-settings/task-status/{task_id} - Get task status"
+    ],
+    "database_model_exists": true,
+    "model_location": "backend/app/db/models.py",
+    "celery_integration_exists": true,
+    "celery_location": "backend/app/celery_app.py"
+  },
+  "recommendations": [
+    {
+      "priority": "critical",
+      "recommendation": "Add Celery to requirements.txt",
+      "details": "Add 'celery>=5.3.0' to backend/requirements.txt - currently used but not listed"
+    },
+    {
+      "priority": "high",
+      "recommendation": "Clarify task requirements",
+      "details": "The sync settings feature appears to be ALREADY IMPLEMENTED. The existing SyncSettingsPage.tsx has full UI for automatic sync configuration including interval/time settings. Need to clarify what additional features are needed."
+    },
+    {
+      "priority": "medium",
+      "recommendation": "Consider using React Query for API calls",
+      "details": "The syncSettings API uses direct axios calls. Consider migrating to React Query hooks for better caching and state management consistency with rest of app."
+    },
+    {
+      "priority": "low",
+      "recommendation": "Add sync frequency presets",
+      "details": "Consider adding preset options like 'Every hour', 'Every 4 hours', 'Daily at midnight' for easier UX"
+    }
+  ],
+  "context7_libraries_used": [
+    "/ant-design/ant-design",
+    "/celery/celery",
+    "/agronholm/apscheduler",
+    "/tanstack/query",
+    "/fastapi/fastapi"
+  ],
+  "created_at": "2024-12-21T12:00:00Z"
+}

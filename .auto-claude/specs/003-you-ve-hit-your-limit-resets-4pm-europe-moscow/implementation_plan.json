@@ -1,0 +1,288 @@
+{
+  "feature": "Auto-Sync Settings Integration on Sync1CPage",
+  "workflow_type": "feature",
+  "workflow_rationale": "This is a frontend-only UI enhancement that adds auto-sync settings visibility and controls to an existing page. The backend API already exists and only frontend changes are needed.",
+  "phases": [
+    {
+      "id": "phase-1-frontend",
+      "name": "Frontend Implementation",
+      "type": "implementation",
+      "description": "Add auto-sync status card component to Sync1CPage with settings display, quick toggle, and navigation to full settings",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Add imports for sync settings API and additional Ant Design components/icons",
+          "service": "frontend",
+          "files_to_modify": ["frontend/src/pages/Sync1CPage.tsx"],
+          "files_to_create": [],
+          "patterns_from": ["frontend/src/pages/SyncSettingsPage.tsx"],
+          "verification": {
+            "type": "command",
+            "command": "cd frontend && npm run build 2>&1 | head -20",
+            "expected": "No import errors"
+          },
+          "status": "pending",
+          "details": {
+            "imports_to_add": [
+              "import { useQuery } from '@tanstack/react-query'",
+              "import { Link } from 'react-router-dom'",
+              "import syncSettingsApi, { SyncSettings, SyncSettingsUpdate } from '../api/syncSettings'",
+              "ClockCircleOutlined, SettingOutlined, LoadingOutlined from @ant-design/icons",
+              "Switch component from antd"
+            ]
+          }
+        },
+        {
+          "id": "subtask-1-2",
+          "description": "Add useQuery hook to fetch sync settings and useMutation for toggle functionality",
+          "service": "frontend",
+          "files_to_modify": ["frontend/src/pages/Sync1CPage.tsx"],
+          "files_to_create": [],
+          "patterns_from": ["frontend/src/pages/SyncSettingsPage.tsx"],
+          "verification": {
+            "type": "command",
+            "command": "cd frontend && npm run build 2>&1 | head -20",
+            "expected": "No TypeScript errors"
+          },
+          "status": "pending",
+          "details": {
+            "query_setup": "useQuery with queryKey: ['syncSettings'], queryFn: syncSettingsApi.getSettings",
+            "mutation_setup": "useMutation with mutationFn: syncSettingsApi.updateSettings, onSuccess to refetch and show message"
+          }
+        },
+        {
+          "id": "subtask-1-3",
+          "description": "Create getStatusTag helper function to display sync status with colored tags",
+          "service": "frontend",
+          "files_to_modify": ["frontend/src/pages/Sync1CPage.tsx"],
+          "files_to_create": [],
+          "patterns_from": ["frontend/src/pages/SyncSettingsPage.tsx"],
+          "verification": {
+            "type": "command",
+            "command": "cd frontend && npm run build 2>&1 | head -20",
+            "expected": "Build succeeds"
+          },
+          "status": "pending",
+          "details": {
+            "status_mapping": {
+              "SUCCESS": "Tag with CheckCircleOutlined, color success, text 'Успешно'",
+              "FAILED": "Tag with CloseCircleOutlined, color error, text 'Ошибка'",
+              "IN_PROGRESS": "Tag with LoadingOutlined, color processing, text 'Выполняется'"
+            }
+          }
+        },
+        {
+          "id": "subtask-1-4",
+          "description": "Create helper function to calculate next scheduled sync time based on settings",
+          "service": "frontend",
+          "files_to_modify": ["frontend/src/pages/Sync1CPage.tsx"],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "cd frontend && npm run build 2>&1 | head -20",
+            "expected": "Build succeeds"
+          },
+          "status": "pending",
+          "details": {
+            "logic": "If sync_time_hour is set, calculate next occurrence of that time. If interval mode, add sync_interval_hours to last_sync_completed_at. Handle edge cases: no last sync, disabled auto-sync."
+          }
+        },
+        {
+          "id": "subtask-1-5",
+          "description": "Create AutoSyncCard component with status display, toggle, and settings link",
+          "service": "frontend",
+          "files_to_modify": ["frontend/src/pages/Sync1CPage.tsx"],
+          "files_to_create": [],
+          "patterns_from": ["frontend/src/pages/SyncSettingsPage.tsx", "frontend/src/pages/Sync1CPage.tsx"],
+          "verification": {
+            "type": "command",
+            "command": "cd frontend && npm run build 2>&1 | head -20",
+            "expected": "Build succeeds"
+          },
+          "status": "pending",
+          "details": {
+            "card_content": [
+              "Row with auto-sync status (enabled/disabled) and Switch toggle",
+              "Display current interval or scheduled time",
+              "Last sync timestamp and status with Tag",
+              "Next sync indicator (calculated client-side)",
+              "Button/Link to navigate to /sync-settings for full configuration"
+            ]
+          }
+        },
+        {
+          "id": "subtask-1-6",
+          "description": "Integrate AutoSyncCard into Sync1CPage layout after connection status card",
+          "service": "frontend",
+          "files_to_modify": ["frontend/src/pages/Sync1CPage.tsx"],
+          "files_to_create": [],
+          "patterns_from": ["frontend/src/pages/Sync1CPage.tsx"],
+          "verification": {
+            "type": "browser",
+            "url": "http://localhost:3000/sync-1c",
+            "checks": [
+              "Auto-sync card renders below connection status",
+              "Toggle switch works",
+              "Link to settings page works",
+              "No console errors"
+            ]
+          },
+          "status": "pending",
+          "details": {
+            "placement": "Add card between connection status card and sync controls row",
+            "styling": "Match existing card styling with marginBottom: 16"
+          }
+        }
+      ]
+    },
+    {
+      "id": "phase-2-verification",
+      "name": "Verification & Edge Cases",
+      "type": "integration",
+      "description": "Verify all functionality works correctly including edge cases",
+      "depends_on": ["phase-1-frontend"],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Test edge cases: no settings configured, auto-sync disabled, sync in progress",
+          "all_services": false,
+          "service": "frontend",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "browser",
+            "url": "http://localhost:3000/sync-1c",
+            "checks": [
+              "Handle loading state with Spin component",
+              "Display informative message when no settings exist",
+              "Show disabled state clearly when auto-sync is off",
+              "Handle API errors gracefully"
+            ]
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Verify existing Sync1CPage functionality is not affected",
+          "all_services": false,
+          "service": "frontend",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "browser",
+            "url": "http://localhost:3000/sync-1c",
+            "checks": [
+              "Connection test still works",
+              "Manual sync buttons still work",
+              "Date range picker works",
+              "Full sync button works",
+              "Sync results display correctly"
+            ]
+          },
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 2,
+    "total_subtasks": 8,
+    "services_involved": ["frontend"],
+    "parallelism": {
+      "max_parallel_phases": 1,
+      "parallel_groups": [],
+      "recommended_workers": 1,
+      "speedup_estimate": "Sequential (frontend-only feature)"
+    },
+    "startup_command": "source auto-claude/.venv/bin/activate && python auto-claude/run.py --spec 003 --parallel 1"
+  },
+  "verification_strategy": {
+    "risk_level": "low",
+    "skip_validation": false,
+    "test_creation_phase": "post_implementation",
+    "test_types_required": ["browser"],
+    "security_scanning_required": false,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "Auto-sync card visible on Sync1CPage",
+      "Current auto-sync settings displayed correctly",
+      "Quick enable/disable toggle works",
+      "Link to full settings page navigates correctly",
+      "No console errors",
+      "Existing page functionality unaffected"
+    ],
+    "verification_steps": [
+      {
+        "name": "TypeScript Build",
+        "command": "cd frontend && npm run build",
+        "expected_outcome": "Build succeeds without errors",
+        "type": "build",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Browser Verification",
+        "command": "Navigate to http://localhost:3000/sync-1c",
+        "expected_outcome": "Auto-sync card renders correctly with all features",
+        "type": "manual",
+        "required": true,
+        "blocking": true
+      }
+    ],
+    "reasoning": "Low-risk frontend-only feature with existing patterns to follow. Browser verification is sufficient for this UI enhancement."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": false,
+      "commands": [],
+      "minimum_coverage": null,
+      "notes": "No unit tests required for this UI enhancement - browser verification is sufficient"
+    },
+    "integration_tests": {
+      "required": false,
+      "commands": [],
+      "services_to_test": []
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "browser_verification": {
+      "required": true,
+      "pages": [
+        {
+          "url": "http://localhost:3000/sync-1c",
+          "checks": [
+            "Auto-sync card renders below connection status",
+            "Shows enabled/disabled status",
+            "Shows interval or scheduled time",
+            "Shows last sync info with status tag",
+            "Toggle switch toggles auto_sync_enabled",
+            "Settings link navigates to /sync-settings",
+            "No console errors",
+            "Existing manual sync controls still work"
+          ]
+        },
+        {
+          "url": "http://localhost:3000/sync-settings",
+          "checks": [
+            "Navigation from sync-1c works",
+            "Full settings page loads correctly"
+          ]
+        }
+      ]
+    },
+    "database_verification": {
+      "required": false,
+      "checks": []
+    }
+  },
+  "qa_signoff": null
+}

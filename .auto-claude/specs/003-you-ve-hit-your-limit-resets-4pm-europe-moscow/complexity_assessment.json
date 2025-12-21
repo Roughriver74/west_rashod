@@ -1,0 +1,89 @@
+{
+  "complexity": "standard",
+  "workflow_type": "feature",
+  "confidence": 0.70,
+  "reasoning": "The task requests auto-sync settings UI for 'GS' (likely Google Sheets) sync page. However, no Google Sheets integration exists in the codebase - only 1C sync with a complete SyncSettingsPage. This is either: (1) confusion with existing 1C sync settings, or (2) request for new Google Sheets integration. Existing patterns exist for sync settings UI, making this standard complexity if following patterns.",
+
+  "analysis": {
+    "scope": {
+      "estimated_files": 6,
+      "estimated_services": 2,
+      "is_cross_cutting": false,
+      "notes": "If replicating existing SyncSettingsPage pattern: frontend page (~1), API client (~1), backend endpoint (~1), backend service (~1), models (~1), tests (~1). Scope depends on clarification of 'GS' meaning."
+    },
+    "integrations": {
+      "external_services": ["Google Sheets API (if new integration)"],
+      "new_dependencies": ["googleapis (if Google Sheets)"],
+      "research_needed": true,
+      "notes": "CRITICAL AMBIGUITY: 'GS' interpretation unclear. If Google Sheets integration needed, requires OAuth setup, API research. If just extending existing 1C sync page, no new integrations needed."
+    },
+    "infrastructure": {
+      "docker_changes": false,
+      "database_changes": false,
+      "config_changes": true,
+      "notes": "Sync settings model (SyncSettings) already exists with auto_sync_enabled, sync_interval_hours, sync_time_hour/minute fields. May need new config for GS credentials if Google Sheets integration."
+    },
+    "knowledge": {
+      "patterns_exist": true,
+      "research_required": true,
+      "unfamiliar_tech": ["Google Sheets API (if applicable)"],
+      "notes": "SyncSettingsPage.tsx provides complete pattern for auto-sync settings UI: toggle, interval/time mode, sync days back, auto-classify. Backend has sync_settings.py with endpoints. Can follow existing patterns."
+    },
+    "risk": {
+      "level": "medium",
+      "concerns": [
+        "Ambiguity about 'GS' meaning - could be Google Sheets or typo",
+        "SyncSettingsPage already exists with full auto-sync settings for 1C",
+        "May be a misunderstanding - feature might already exist",
+        "If Google Sheets: OAuth complexity, API quotas"
+      ],
+      "notes": "Main risk is implementing wrong feature due to unclear requirements. Existing SyncSettingsPage has complete auto-sync UI for 1C system. Need clarification before implementation."
+    }
+  },
+
+  "recommended_phases": [
+    "discovery",
+    "requirements",
+    "research",
+    "context",
+    "spec_writing",
+    "planning",
+    "validation"
+  ],
+
+  "flags": {
+    "needs_research": true,
+    "needs_self_critique": false,
+    "needs_infrastructure_setup": false
+  },
+
+  "validation_recommendations": {
+    "risk_level": "medium",
+    "skip_validation": false,
+    "minimal_mode": false,
+    "test_types_required": ["unit", "integration"],
+    "security_scan_required": false,
+    "staging_deployment_required": false,
+    "reasoning": "Sync settings feature requires unit tests for UI logic and integration tests for API calls. No auth/security changes if following existing patterns. If Google Sheets OAuth added, would need security scan."
+  },
+
+  "clarification_needed": {
+    "critical_questions": [
+      "What does 'GS' mean? Google Sheets or something else?",
+      "Is there an existing GS sync page that's missing settings, or does the entire feature need to be built?",
+      "Is the existing SyncSettingsPage (/sync-settings) not what's needed? It already has auto-sync interval/timing controls for 1C.",
+      "If Google Sheets integration is needed, what data should sync to/from Google Sheets?"
+    ],
+    "existing_feature_note": "SyncSettingsPage.tsx already provides: auto-sync toggle, interval mode (1-24 hours), scheduled time mode (HH:MM), sync days back setting, auto-classify toggle, manual sync trigger button, last sync status display"
+  },
+
+  "existing_patterns": {
+    "sync_settings_page": "frontend/src/pages/SyncSettingsPage.tsx",
+    "sync_settings_api": "frontend/src/api/syncSettings.ts",
+    "backend_sync_settings": "backend/app/api/v1/sync_settings.py",
+    "sync_settings_model": "SyncSettings model in backend/app/db/models.py",
+    "ui_components_used": ["Form", "Switch", "InputNumber", "Radio.Group", "Button", "Card", "Alert", "Tag"]
+  },
+
+  "created_at": "2025-12-21T22:45:00.000Z"
+}

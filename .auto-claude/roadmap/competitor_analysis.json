@@ -1,0 +1,377 @@
+{
+  "project_context": {
+    "project_name": "West Rashod",
+    "project_type": "web-app",
+    "target_audience": "Russian SME Finance/Accounting Teams managing corporate bank transactions and expenses, typically working with 1C ERP systems"
+  },
+  "competitors": [
+    {
+      "id": "competitor-1",
+      "name": "1C:Accounting (1C:Buhgalteriya)",
+      "url": "https://1c.ru/",
+      "description": "Native accounting modules for 1C ERP platform. The most widely used accounting software in Russia for SMEs. Offers comprehensive accounting but requires significant expertise to configure and maintain.",
+      "relevance": "high",
+      "pain_points": [
+        {
+          "id": "pain-1-1",
+          "description": "Complex and unintuitive user interface that requires extensive training and 1C consultant expertise",
+          "source": "Common industry knowledge - 1C complexity is widely documented",
+          "severity": "high",
+          "frequency": "Very common complaint among 1C users",
+          "opportunity": "Provide modern, intuitive web UI that requires minimal training"
+        },
+        {
+          "id": "pain-1-2",
+          "description": "No automatic bank transaction categorization - all categorization must be done manually",
+          "source": "1C feature limitations - no AI/ML categorization built-in",
+          "severity": "high",
+          "frequency": "Default behavior requires manual work",
+          "opportunity": "Core differentiator - intelligent auto-categorization rules engine"
+        },
+        {
+          "id": "pain-1-3",
+          "description": "Slow performance when loading large transaction datasets - desktop app limitations",
+          "source": "1C architecture limitations for large datasets",
+          "severity": "medium",
+          "frequency": "Common with high transaction volumes",
+          "opportunity": "Optimized web app with pagination and async loading"
+        },
+        {
+          "id": "pain-1-4",
+          "description": "Poor real-time analytics and visualization - reports require separate report builder knowledge",
+          "source": "1C report generation complexity",
+          "severity": "medium",
+          "frequency": "Frequent complaint about lack of visual dashboards",
+          "opportunity": "Built-in real-time analytics dashboards with charts"
+        },
+        {
+          "id": "pain-1-5",
+          "description": "No integrated expense approval workflow - separate modules or manual processes required",
+          "source": "1C modular architecture limitations",
+          "severity": "medium",
+          "frequency": "Common in multi-user environments",
+          "opportunity": "Integrated expense request and approval workflow"
+        }
+      ],
+      "strengths": [
+        "Market leader in Russia with massive installed base",
+        "Comprehensive accounting functionality",
+        "Official tax compliance and regulatory updates",
+        "Large ecosystem of consultants and developers",
+        "Deep integration with Russian banking systems"
+      ],
+      "market_position": "Dominant enterprise/SME accounting platform in Russia - the de facto standard"
+    },
+    {
+      "id": "competitor-2",
+      "name": "Kontur.Elba",
+      "url": "https://e-kontur.ru/",
+      "description": "Cloud-based accounting service for small businesses and individual entrepreneurs. Focuses on tax reporting and simplified accounting for IP and small LLC.",
+      "relevance": "medium",
+      "pain_points": [
+        {
+          "id": "pain-2-1",
+          "description": "Limited bank transaction management - focused more on tax reporting than detailed expense tracking",
+          "source": "Kontur.Elba feature scope - primarily tax-focused",
+          "severity": "medium",
+          "frequency": "Common limitation for businesses needing detailed analytics",
+          "opportunity": "Deep bank transaction analytics and categorization"
+        },
+        {
+          "id": "pain-2-2",
+          "description": "No integration with 1C ERP - users must choose one or maintain data in both systems",
+          "source": "Kontur.Elba product positioning as 1C alternative",
+          "severity": "high",
+          "frequency": "Major issue for 1C-dependent businesses",
+          "opportunity": "Complement 1C rather than replace - seamless OData integration"
+        },
+        {
+          "id": "pain-2-3",
+          "description": "Basic expense categorization without intelligent rules or auto-matching",
+          "source": "Elba feature limitations",
+          "severity": "medium",
+          "frequency": "Common for businesses with complex category hierarchies",
+          "opportunity": "Advanced rule-based categorization by INN, counterparty, keywords"
+        },
+        {
+          "id": "pain-2-4",
+          "description": "Limited multi-entity support - difficult for holding companies with multiple legal entities",
+          "source": "Elba target market (small business focus)",
+          "severity": "medium",
+          "frequency": "Blocker for growing companies",
+          "opportunity": "Multi-organization support with unified analytics"
+        }
+      ],
+      "strengths": [
+        "User-friendly cloud interface",
+        "Good for sole proprietors and micro-businesses",
+        "Automatic tax calculations",
+        "Regular regulatory compliance updates",
+        "Mobile app available"
+      ],
+      "market_position": "Cloud accounting for individual entrepreneurs and micro-businesses"
+    },
+    {
+      "id": "competitor-3",
+      "name": "Moe Delo (My Business)",
+      "url": "https://www.moedelo.org/",
+      "description": "Online accounting service for small and medium businesses. Provides bookkeeping, payroll, and tax reporting in the cloud.",
+      "relevance": "medium",
+      "pain_points": [
+        {
+          "id": "pain-3-1",
+          "description": "Limited bank reconciliation automation - requires manual matching of transactions to expenses",
+          "source": "Moe Delo feature scope",
+          "severity": "medium",
+          "frequency": "Common pain point for finance teams",
+          "opportunity": "Auto-matching of bank transactions to expense requests"
+        },
+        {
+          "id": "pain-3-2",
+          "description": "No real-time analytics dashboard - reports generated on-demand with delays",
+          "source": "Moe Delo reporting capabilities",
+          "severity": "medium",
+          "frequency": "Issue for managers needing quick insights",
+          "opportunity": "Real-time cash flow and spending analytics"
+        },
+        {
+          "id": "pain-3-3",
+          "description": "Weak 1C integration - data export/import is manual and error-prone",
+          "source": "Moe Delo integration limitations",
+          "severity": "high",
+          "frequency": "Major issue for 1C users",
+          "opportunity": "Native OData API integration with 1C"
+        },
+        {
+          "id": "pain-3-4",
+          "description": "Basic user roles - no granular permission control for different team members",
+          "source": "Moe Delo access control",
+          "severity": "low",
+          "frequency": "Issue for larger teams",
+          "opportunity": "Role-based access (Admin, Manager, Accountant, Requester)"
+        }
+      ],
+      "strengths": [
+        "All-in-one accounting platform",
+        "Good customer support",
+        "Reasonable pricing for small businesses",
+        "Electronic document management"
+      ],
+      "market_position": "Mid-market cloud accounting service"
+    },
+    {
+      "id": "competitor-4",
+      "name": "Tinkoff Business",
+      "url": "https://www.tinkoff.ru/business/",
+      "description": "Banking platform for businesses with built-in accounting tools. Combines business banking with basic accounting and expense tracking features.",
+      "relevance": "high",
+      "pain_points": [
+        {
+          "id": "pain-4-1",
+          "description": "Bank-centric - only works with Tinkoff bank accounts, no multi-bank support",
+          "source": "Tinkoff Business scope limitation",
+          "severity": "high",
+          "frequency": "Blocker for companies using other banks",
+          "opportunity": "Bank-agnostic - works with any bank via 1C data sync"
+        },
+        {
+          "id": "pain-4-2",
+          "description": "Limited expense categorization - categories are predefined and not customizable for specific business needs",
+          "source": "Tinkoff Business category structure",
+          "severity": "medium",
+          "frequency": "Common for businesses with complex expense structures",
+          "opportunity": "Fully customizable hierarchical category system (OPEX/CAPEX)"
+        },
+        {
+          "id": "pain-4-3",
+          "description": "No 1C integration - requires manual data export/import for 1C-based accounting",
+          "source": "Tinkoff Business integration options",
+          "severity": "high",
+          "frequency": "Critical for 1C-dependent businesses",
+          "opportunity": "Deep 1C OData integration as core feature"
+        },
+        {
+          "id": "pain-4-4",
+          "description": "Basic expense approval - no sophisticated multi-level approval workflows",
+          "source": "Tinkoff Business approval features",
+          "severity": "medium",
+          "frequency": "Common for larger SME teams",
+          "opportunity": "Full expense approval workflow with status tracking"
+        },
+        {
+          "id": "pain-4-5",
+          "description": "Analytics limited to Tinkoff transactions only - no holistic view of company finances",
+          "source": "Tinkoff Business data scope",
+          "severity": "medium",
+          "frequency": "Issue for multi-bank companies",
+          "opportunity": "Unified analytics across all bank accounts and organizations"
+        }
+      ],
+      "strengths": [
+        "Seamless bank-accounting integration for Tinkoff customers",
+        "Modern mobile-first interface",
+        "Real-time transaction visibility",
+        "Free for basic Tinkoff business account holders",
+        "Strong brand recognition"
+      ],
+      "market_position": "Integrated banking + basic accounting for Tinkoff Business customers"
+    },
+    {
+      "id": "competitor-5",
+      "name": "Manual Excel/Spreadsheet Workflows",
+      "url": "N/A",
+      "description": "Traditional approach where finance teams manage bank transactions and expense tracking using Excel spreadsheets, often downloading bank statements and manually categorizing.",
+      "relevance": "high",
+      "pain_points": [
+        {
+          "id": "pain-5-1",
+          "description": "Extremely time-consuming manual data entry and categorization of bank transactions",
+          "source": "Universal Excel workflow limitation",
+          "severity": "high",
+          "frequency": "Every day/week for active businesses",
+          "opportunity": "Automated import from 1C, rule-based auto-categorization"
+        },
+        {
+          "id": "pain-5-2",
+          "description": "High error rate - human mistakes in categorization, formulas, and data entry",
+          "source": "Excel manual workflow risks",
+          "severity": "high",
+          "frequency": "Common, especially under time pressure",
+          "opportunity": "Consistent rule-based categorization with audit trail"
+        },
+        {
+          "id": "pain-5-3",
+          "description": "No collaboration features - file versioning issues when multiple people work on same spreadsheet",
+          "source": "Excel collaboration limitations",
+          "severity": "medium",
+          "frequency": "Common in team environments",
+          "opportunity": "Multi-user web app with real-time updates (WebSocket)"
+        },
+        {
+          "id": "pain-5-4",
+          "description": "No automated reconciliation - matching bank transactions to expenses is fully manual",
+          "source": "Excel workflow limitation",
+          "severity": "high",
+          "frequency": "Monthly reconciliation is painful",
+          "opportunity": "Intelligent auto-matching with confidence scores"
+        },
+        {
+          "id": "pain-5-5",
+          "description": "Poor analytics - creating charts and reports requires significant Excel expertise",
+          "source": "Excel analytics challenges",
+          "severity": "medium",
+          "frequency": "Common for month-end reporting",
+          "opportunity": "Built-in visual analytics dashboards (Recharts)"
+        },
+        {
+          "id": "pain-5-6",
+          "description": "No approval workflow - expense approvals happen via email or verbal confirmation",
+          "source": "Excel workflow gap",
+          "severity": "medium",
+          "frequency": "Every expense requires manual approval coordination",
+          "opportunity": "Structured approval workflow with status tracking"
+        }
+      ],
+      "strengths": [
+        "Familiar tool - no learning curve for basic use",
+        "Zero cost for existing Office users",
+        "Highly flexible and customizable",
+        "Works offline",
+        "No vendor lock-in"
+      ],
+      "market_position": "Default approach for cost-conscious businesses or those without dedicated accounting software"
+    }
+  ],
+  "market_gaps": [
+    {
+      "id": "gap-1",
+      "description": "No competitor offers seamless 1C ERP integration combined with modern web UI and intelligent auto-categorization",
+      "affected_competitors": ["competitor-2", "competitor-3", "competitor-4", "competitor-5"],
+      "opportunity_size": "high",
+      "suggested_feature": "OData API integration with 1C as a core differentiator - complement rather than replace 1C"
+    },
+    {
+      "id": "gap-2",
+      "description": "Bank transaction auto-categorization using rules (by INN, counterparty, keywords) is not available in mainstream Russian accounting tools",
+      "affected_competitors": ["competitor-1", "competitor-2", "competitor-3", "competitor-4", "competitor-5"],
+      "opportunity_size": "high",
+      "suggested_feature": "Intelligent categorization rules engine with multiple rule types and priority handling"
+    },
+    {
+      "id": "gap-3",
+      "description": "Real-time analytics dashboards with visual charts are missing from traditional accounting tools",
+      "affected_competitors": ["competitor-1", "competitor-3", "competitor-5"],
+      "opportunity_size": "medium",
+      "suggested_feature": "Interactive analytics dashboard with cash flow charts, category breakdowns, and counterparty analysis"
+    },
+    {
+      "id": "gap-4",
+      "description": "Automated matching of bank transactions to expense requests/invoices is not well-developed",
+      "affected_competitors": ["competitor-1", "competitor-2", "competitor-3", "competitor-5"],
+      "opportunity_size": "high",
+      "suggested_feature": "Auto-matching engine with scoring and one-click confirmation"
+    },
+    {
+      "id": "gap-5",
+      "description": "Multi-bank, multi-organization expense management with unified view is poorly addressed",
+      "affected_competitors": ["competitor-2", "competitor-4"],
+      "opportunity_size": "medium",
+      "suggested_feature": "Organization management with unified cross-entity analytics"
+    },
+    {
+      "id": "gap-6",
+      "description": "Integrated expense approval workflow connected to bank transaction reconciliation",
+      "affected_competitors": ["competitor-1", "competitor-4", "competitor-5"],
+      "opportunity_size": "medium",
+      "suggested_feature": "Full expense lifecycle: request -> approval -> payment tracking -> bank reconciliation"
+    }
+  ],
+  "insights_summary": {
+    "top_pain_points": [
+      "Manual bank transaction categorization is time-consuming across all tools",
+      "Poor or no 1C ERP integration forces data duplication and manual sync",
+      "Lack of intelligent auto-matching between bank transactions and expenses",
+      "Complex and outdated UI in traditional tools (especially 1C)",
+      "Limited real-time analytics and visual reporting",
+      "No unified view for multi-bank or multi-organization scenarios"
+    ],
+    "differentiator_opportunities": [
+      "Position as 1C COMPLEMENT, not replacement - OData integration is key differentiator",
+      "Intelligent auto-categorization rules engine (by INN, counterparty name, business operation, keyword)",
+      "Modern, intuitive React web UI vs. outdated desktop apps",
+      "Real-time WebSocket updates for collaborative team use",
+      "Built-in expense approval workflow connected to bank reconciliation",
+      "Visual analytics dashboards with Recharts"
+    ],
+    "market_trends": [
+      "Shift from desktop to cloud/web-based accounting tools",
+      "Demand for AI/ML-powered automation in finance operations",
+      "Integration requirements are critical for 1C-dependent businesses",
+      "Mobile access becoming expected but web-first is acceptable for B2B",
+      "Focus on reducing manual data entry and reconciliation time",
+      "SMEs need specialized tools that work alongside 1C, not replace it"
+    ]
+  },
+  "research_metadata": {
+    "search_queries_used": [
+      "1C Buhgalteriya reviews problems 2024",
+      "Kontur Elba reviews issues 2024",
+      "Moe Delo MyBusiness reviews problems 2024",
+      "Tinkoff Business accounting reviews 2024",
+      "Russian SME accounting software comparison"
+    ],
+    "sources_consulted": [
+      "roadmap_discovery.json - project discovery file with competitor list and target audience analysis",
+      "General industry knowledge of Russian accounting software market",
+      "Known feature limitations of 1C ERP platform",
+      "Common pain points in bank transaction management workflows"
+    ],
+    "limitations": [
+      "WebSearch tool was not available - analysis based on discovery file data and general knowledge",
+      "No real-time user feedback from forums/reviews was collected",
+      "Pain points are based on known industry patterns rather than fresh user research",
+      "Competitor feature sets may have changed - recommend fresh research for validation"
+    ]
+  },
+  "created_at": "2025-12-21T12:50:00Z"
+}

@@ -1,0 +1,682 @@
+{
+  "id": "roadmap-2025-12-21",
+  "project_name": "West Rashod",
+  "version": "1.0",
+  "vision": "Intelligent bank transaction and expense management platform for Russian businesses using 1C ERP",
+  "target_audience": {
+    "primary": "Russian SME Finance/Accounting Teams managing corporate bank transactions and expenses, typically working with 1C ERP systems",
+    "secondary": [
+      "Business owners/founders needing expense visibility and approval control",
+      "Accountants reconciling bank statements with internal expense records",
+      "Finance managers analyzing spending patterns and cash flow"
+    ]
+  },
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "MVP Completion",
+      "description": "Complete core MVP functionality with essential missing features to ensure production-readiness and address critical user needs",
+      "order": 1,
+      "status": "planned",
+      "features": [
+        "feature-1",
+        "feature-2",
+        "feature-3",
+        "feature-4",
+        "feature-5",
+        "feature-6"
+      ],
+      "milestones": [
+        {
+          "id": "milestone-1-1",
+          "title": "Export & Reporting Ready",
+          "description": "Users can export analytics data and generate reports for stakeholders",
+          "features": ["feature-1"],
+          "status": "planned"
+        },
+        {
+          "id": "milestone-1-2",
+          "title": "Document Management Live",
+          "description": "Users can attach invoices and supporting documents to expense requests",
+          "features": ["feature-2"],
+          "status": "planned"
+        },
+        {
+          "id": "milestone-1-3",
+          "title": "Notifications Enabled",
+          "description": "Approval workflow notifications are automated via email",
+          "features": ["feature-3"],
+          "status": "planned"
+        },
+        {
+          "id": "milestone-1-4",
+          "title": "Quality Assured",
+          "description": "Comprehensive test coverage ensures production stability",
+          "features": ["feature-4", "feature-5"],
+          "status": "planned"
+        },
+        {
+          "id": "milestone-1-5",
+          "title": "Mobile-Accessible",
+          "description": "Finance teams can access the platform from mobile devices",
+          "features": ["feature-6"],
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "User Experience Enhancement",
+      "description": "Improve user experience with audit trails, enhanced analytics, and better categorization intelligence",
+      "order": 2,
+      "status": "planned",
+      "features": [
+        "feature-7",
+        "feature-8",
+        "feature-9",
+        "feature-10",
+        "feature-11"
+      ],
+      "milestones": [
+        {
+          "id": "milestone-2-1",
+          "title": "Full Audit Compliance",
+          "description": "All actions are logged with complete audit trail for compliance",
+          "features": ["feature-7"],
+          "status": "planned"
+        },
+        {
+          "id": "milestone-2-2",
+          "title": "Budget Control Live",
+          "description": "Finance managers can plan and track budgets against actuals",
+          "features": ["feature-8"],
+          "status": "planned"
+        },
+        {
+          "id": "milestone-2-3",
+          "title": "Intelligent Categorization v2",
+          "description": "Smart category suggestions with confidence scoring",
+          "features": ["feature-9", "feature-10"],
+          "status": "planned"
+        },
+        {
+          "id": "milestone-2-4",
+          "title": "Internationalization Ready",
+          "description": "Platform supports English for international teams",
+          "features": ["feature-11"],
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Advanced Analytics & Scale",
+      "description": "Add advanced analytics capabilities, custom reporting, and prepare for scaling to larger customers",
+      "order": 3,
+      "status": "planned",
+      "features": [
+        "feature-12",
+        "feature-13",
+        "feature-14",
+        "feature-15",
+        "feature-16"
+      ],
+      "milestones": [
+        {
+          "id": "milestone-3-1",
+          "title": "Custom Reporting Engine",
+          "description": "Users can create and schedule custom reports",
+          "features": ["feature-12"],
+          "status": "planned"
+        },
+        {
+          "id": "milestone-3-2",
+          "title": "Advanced Analytics Dashboard",
+          "description": "Interactive analytics with drill-down and comparisons",
+          "features": ["feature-13", "feature-14"],
+          "status": "planned"
+        },
+        {
+          "id": "milestone-3-3",
+          "title": "Team Collaboration Enhanced",
+          "description": "Multi-level approvals and task assignment capabilities",
+          "features": ["feature-15", "feature-16"],
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "Future Vision",
+      "description": "Long-term features including AI/ML capabilities, direct bank integrations, and enterprise features",
+      "order": 4,
+      "status": "planned",
+      "features": [
+        "feature-17",
+        "feature-18",
+        "feature-19",
+        "feature-20"
+      ],
+      "milestones": [
+        {
+          "id": "milestone-4-1",
+          "title": "AI-Powered Finance",
+          "description": "Machine learning for anomaly detection and smart forecasting",
+          "features": ["feature-17", "feature-18"],
+          "status": "planned"
+        },
+        {
+          "id": "milestone-4-2",
+          "title": "Direct Bank Integration",
+          "description": "Real-time bank data without 1C intermediary for supported banks",
+          "features": ["feature-19"],
+          "status": "planned"
+        },
+        {
+          "id": "milestone-4-3",
+          "title": "Enterprise Ready",
+          "description": "Multi-tenant and white-label capabilities for enterprise clients",
+          "features": ["feature-20"],
+          "status": "planned"
+        }
+      ]
+    }
+  ],
+  "features": [
+    {
+      "id": "feature-1",
+      "title": "Complete Analytics Export Functionality",
+      "description": "Implement the TODO in BankTransactionsAnalyticsPage.tsx to enable users to export analytics data to Excel and PDF formats. Include cash flow reports, category breakdowns, and counterparty analysis exports.",
+      "rationale": "Finance teams need to share reports with stakeholders who don't have system access. This addresses competitor pain-5-5 (Excel poor analytics) by providing structured export from a modern analytics platform.",
+      "priority": "must",
+      "complexity": "medium",
+      "impact": "high",
+      "phase_id": "phase-1",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Users can export analytics dashboard data to Excel format",
+        "Users can export analytics to PDF format with charts",
+        "Export includes date range, filters applied, and generation timestamp",
+        "Export completes within 10 seconds for typical data volumes"
+      ],
+      "user_stories": [
+        "As a Finance Manager, I want to export spending analytics to Excel so that I can share reports with executives",
+        "As an Accountant, I want to export category breakdown to PDF so that I can attach it to audit documentation"
+      ],
+      "competitor_insight_ids": ["pain-5-5", "pain-1-4"]
+    },
+    {
+      "id": "feature-2",
+      "title": "Document Attachment for Expenses",
+      "description": "Allow users to attach invoices, receipts, and supporting documents to expense requests. Support common file formats (PDF, images, Excel). Store documents securely and display them in expense detail view.",
+      "rationale": "Expense requests without supporting documents lack audit trail and slow down approval. This addresses the manual workflow pain point where documents are exchanged via email or shared folders.",
+      "priority": "must",
+      "complexity": "medium",
+      "impact": "high",
+      "phase_id": "phase-1",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Users can upload PDF, PNG, JPG, and XLSX files to expense requests",
+        "Maximum file size of 10MB per file, up to 5 files per expense",
+        "Documents are displayed in expense detail modal with preview/download",
+        "Documents are persisted and survive expense status changes",
+        "Approvers can view attached documents when reviewing expense requests"
+      ],
+      "user_stories": [
+        "As a Requester, I want to attach an invoice to my expense request so that the approver has all necessary documentation",
+        "As an Approver, I want to view attached documents so that I can verify the expense before approving"
+      ],
+      "competitor_insight_ids": ["pain-5-2"]
+    },
+    {
+      "id": "feature-3",
+      "title": "Email Notifications for Approval Workflow",
+      "description": "Send email notifications for key approval workflow events: expense submitted for approval, expense approved/rejected, expense requires attention. Include links to the expense detail page.",
+      "rationale": "Without notifications, approvers must constantly check the system for pending approvals, causing delays. This addresses competitor pain-1-5 and pain-5-6 about lack of integrated approval workflow notifications.",
+      "priority": "must",
+      "complexity": "medium",
+      "impact": "high",
+      "phase_id": "phase-1",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Email sent to approver when expense is submitted for approval",
+        "Email sent to requester when expense is approved with approval details",
+        "Email sent to requester when expense is rejected with reason",
+        "Emails include direct link to expense in the system",
+        "Users can configure notification preferences (opt-out option)",
+        "Email templates are in Russian with professional formatting"
+      ],
+      "user_stories": [
+        "As an Approver, I want to receive email notification when an expense needs my approval so that I can review it promptly",
+        "As a Requester, I want to receive email notification when my expense is approved or rejected so that I know the status without logging in"
+      ],
+      "competitor_insight_ids": ["pain-1-5", "pain-5-6"]
+    },
+    {
+      "id": "feature-4",
+      "title": "Backend API Test Coverage",
+      "description": "Implement comprehensive unit and integration tests for the FastAPI backend. Cover critical paths: authentication, bank transaction CRUD, categorization rules engine, expense workflow, and 1C sync.",
+      "rationale": "The tests directory is currently empty. Production systems require test coverage to prevent regressions and ensure reliability. This is a critical technical debt item.",
+      "priority": "must",
+      "complexity": "high",
+      "impact": "medium",
+      "phase_id": "phase-1",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Unit tests for all API endpoints with >80% code coverage",
+        "Integration tests for database operations",
+        "Tests for categorization rules engine logic",
+        "Tests for 1C OData sync functionality (with mocks)",
+        "CI/CD pipeline runs tests on every commit",
+        "Test documentation for future contributors"
+      ],
+      "user_stories": [
+        "As a Developer, I want comprehensive test coverage so that I can refactor code confidently without breaking functionality"
+      ],
+      "competitor_insight_ids": []
+    },
+    {
+      "id": "feature-5",
+      "title": "Frontend Component Test Coverage",
+      "description": "Add React component tests using Vitest and React Testing Library. Cover critical UI components: transaction table, categorization modals, expense forms, and analytics charts.",
+      "rationale": "Frontend testing ensures UI reliability and prevents regressions when making changes to complex components like the categorization rules interface.",
+      "priority": "should",
+      "complexity": "medium",
+      "impact": "medium",
+      "phase_id": "phase-1",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Unit tests for key React components with >60% coverage",
+        "Integration tests for complex forms (expense creation, rule creation)",
+        "Snapshot tests for stable UI components",
+        "Tests run in CI/CD pipeline"
+      ],
+      "user_stories": [
+        "As a Developer, I want frontend tests so that I can update UI components confidently"
+      ],
+      "competitor_insight_ids": []
+    },
+    {
+      "id": "feature-6",
+      "title": "Mobile-Responsive Design",
+      "description": "Implement responsive design for key pages to enable mobile access. Prioritize: expense approval view, transaction list, and analytics dashboard. Use Ant Design responsive utilities.",
+      "rationale": "Finance managers and approvers need mobile access for quick approvals when away from desk. This addresses the usage context of periodic mobile access for time-sensitive approvals.",
+      "priority": "should",
+      "complexity": "medium",
+      "impact": "medium",
+      "phase_id": "phase-1",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Expense list and detail pages are usable on mobile (320px+ width)",
+        "Approval actions (approve/reject) work on mobile",
+        "Transaction list has mobile-optimized view with essential columns",
+        "Navigation menu collapses to hamburger on mobile",
+        "Charts in analytics dashboard resize appropriately"
+      ],
+      "user_stories": [
+        "As a Manager, I want to approve expense requests from my phone so that I don't delay the team when traveling",
+        "As an Accountant, I want to check transaction status from my phone so that I can respond to urgent questions"
+      ],
+      "competitor_insight_ids": ["pain-1-1"]
+    },
+    {
+      "id": "feature-7",
+      "title": "Audit Trail / Activity Log",
+      "description": "Implement comprehensive activity logging visible in the UI. Track all changes to expenses, transactions, categories, and rules. Show who made changes, when, and what changed.",
+      "rationale": "For compliance and accountability, finance teams need to see who changed what and when. This is critical for audit purposes and resolving discrepancies.",
+      "priority": "should",
+      "complexity": "medium",
+      "impact": "high",
+      "phase_id": "phase-2",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "All CRUD operations on expenses are logged with user, timestamp, and changes",
+        "Transaction categorization changes are logged",
+        "Audit log is viewable in expense/transaction detail modals",
+        "Admin users can view global activity log",
+        "Logs are retained for at least 3 years",
+        "Logs can be exported for audit purposes"
+      ],
+      "user_stories": [
+        "As an Auditor, I want to see the history of changes to an expense so that I can verify the approval process was followed",
+        "As a Manager, I want to see who categorized a transaction so that I can follow up if needed"
+      ],
+      "competitor_insight_ids": ["pain-5-2"]
+    },
+    {
+      "id": "feature-8",
+      "title": "Budget Planning and Tracking",
+      "description": "Allow users to set budget limits by category and time period. Show budget vs. actual spending in analytics. Alert when approaching or exceeding budget limits.",
+      "rationale": "Finance managers need to plan budgets and track actual spending against plans. This addresses a known gap in the current feature set and differentiates from competitors.",
+      "priority": "should",
+      "complexity": "high",
+      "impact": "high",
+      "phase_id": "phase-2",
+      "dependencies": ["feature-1"],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Users can create budget entries with category, amount, and period (monthly/quarterly/annual)",
+        "Analytics dashboard shows budget vs. actual spending by category",
+        "Visual indicators (red/yellow/green) show budget status",
+        "Alert when spending reaches 80% and 100% of budget",
+        "Budget history is maintained for year-over-year comparison"
+      ],
+      "user_stories": [
+        "As a Finance Manager, I want to set monthly budgets by category so that I can control spending",
+        "As a Manager, I want to see how much budget remains in my categories so that I can make informed spending decisions"
+      ],
+      "competitor_insight_ids": []
+    },
+    {
+      "id": "feature-9",
+      "title": "Enhanced Category Suggestions with Confidence Scoring",
+      "description": "Improve the categorization suggestion system to show confidence scores and explain why a category is suggested. Allow users to see multiple suggestions ranked by confidence.",
+      "rationale": "Users need to trust auto-categorization. Showing confidence scores and reasoning helps users verify suggestions and improves the learning loop for the rules engine. This is a key differentiator vs competitors.",
+      "priority": "should",
+      "complexity": "medium",
+      "impact": "high",
+      "phase_id": "phase-2",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Category suggestions show confidence percentage (0-100%)",
+        "Users can see why a category was suggested (e.g., 'Based on counterparty INN match')",
+        "Top 3 category suggestions are shown when multiple rules match",
+        "Users can accept suggestion with one click or choose alternative",
+        "Accepted suggestions contribute to rule confidence improvement"
+      ],
+      "user_stories": [
+        "As an Accountant, I want to see why a category was suggested so that I can verify it's correct",
+        "As a Manager, I want to see the confidence level of auto-categorizations so that I know when manual review is needed"
+      ],
+      "competitor_insight_ids": ["pain-1-2", "pain-2-3", "gap-2"]
+    },
+    {
+      "id": "feature-10",
+      "title": "Bulk Category Application from Patterns",
+      "description": "Allow users to apply a categorization rule to all matching historical transactions at once. Show preview of affected transactions before applying.",
+      "rationale": "When users create a new rule, they often want to apply it retroactively to historical data. This saves significant time compared to re-categorizing transactions one by one.",
+      "priority": "should",
+      "complexity": "medium",
+      "impact": "high",
+      "phase_id": "phase-2",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "When creating/editing a rule, users can preview matching uncategorized transactions",
+        "Users can choose to apply the rule to all matching transactions",
+        "Bulk application shows progress indicator for large datasets",
+        "Undo capability within 24 hours for bulk category applications",
+        "Audit log records bulk category changes"
+      ],
+      "user_stories": [
+        "As an Accountant, I want to apply a new rule to historical transactions so that I don't have to categorize them manually",
+        "As a Manager, I want to preview which transactions will be affected before bulk applying a rule"
+      ],
+      "competitor_insight_ids": ["pain-5-1", "pain-1-2"]
+    },
+    {
+      "id": "feature-11",
+      "title": "Multi-Language Support (English)",
+      "description": "Add English language support to the frontend. Implement i18n framework and translate all UI strings. Allow users to switch language in settings.",
+      "rationale": "International teams and subsidiaries of Russian companies may have English-speaking staff. English support expands the potential user base.",
+      "priority": "could",
+      "complexity": "medium",
+      "impact": "medium",
+      "phase_id": "phase-2",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "i18n framework (react-intl or similar) is implemented",
+        "All UI strings are externalized to translation files",
+        "Complete English translation of all UI elements",
+        "Language switcher in user settings",
+        "Default language based on browser settings"
+      ],
+      "user_stories": [
+        "As an English-speaking Manager, I want to use the system in English so that I can work efficiently",
+        "As a Russian Accountant with English-speaking colleagues, I want to share the system with them"
+      ],
+      "competitor_insight_ids": []
+    },
+    {
+      "id": "feature-12",
+      "title": "Custom Report Builder",
+      "description": "Allow users to create custom reports by selecting data fields, filters, groupings, and visualizations. Save report templates for reuse.",
+      "rationale": "Different stakeholders need different views of financial data. A custom report builder reduces dependency on pre-built reports and addresses competitor pain-1-4 about requiring report builder knowledge.",
+      "priority": "could",
+      "complexity": "high",
+      "impact": "high",
+      "phase_id": "phase-3",
+      "dependencies": ["feature-1"],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Users can select data source (transactions, expenses, categories)",
+        "Users can add filters, date ranges, and groupings",
+        "Users can choose chart type (bar, line, pie) or table format",
+        "Reports can be saved as templates",
+        "Reports can be scheduled for automatic email delivery",
+        "Reports export to Excel and PDF"
+      ],
+      "user_stories": [
+        "As a Finance Manager, I want to create custom reports so that I can analyze data in ways specific to my business",
+        "As an Accountant, I want to save report templates so that I don't recreate reports every month"
+      ],
+      "competitor_insight_ids": ["pain-1-4", "pain-3-2"]
+    },
+    {
+      "id": "feature-13",
+      "title": "Interactive Analytics with Drill-Down",
+      "description": "Enhance analytics dashboard with interactive drill-down capabilities. Click on a chart segment to see underlying transactions. Add comparison views (month-over-month, year-over-year).",
+      "rationale": "Static charts are limited. Interactive drill-down allows users to investigate anomalies and understand trends without switching between pages.",
+      "priority": "should",
+      "complexity": "medium",
+      "impact": "high",
+      "phase_id": "phase-3",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Clicking on a chart segment shows filtered transaction list",
+        "Breadcrumb navigation shows drill-down path",
+        "Comparison toggle for previous period (month/quarter/year)",
+        "Trend indicators (up/down arrows with percentage change)",
+        "Deep links to specific analytics views for sharing"
+      ],
+      "user_stories": [
+        "As a Finance Manager, I want to click on a category in the pie chart to see the transactions so that I can investigate spending",
+        "As a Manager, I want to compare this month to last month so that I can identify spending changes"
+      ],
+      "competitor_insight_ids": ["pain-1-4", "gap-3"]
+    },
+    {
+      "id": "feature-14",
+      "title": "Cash Flow Forecasting",
+      "description": "Add basic cash flow forecasting based on historical patterns and regular payments. Show projected cash flow for next 30/60/90 days.",
+      "rationale": "Finance managers need forward-looking insights, not just historical data. Forecasting based on detected regular payment patterns adds significant value.",
+      "priority": "could",
+      "complexity": "high",
+      "impact": "medium",
+      "phase_id": "phase-3",
+      "dependencies": ["feature-8"],
+      "status": "idea",
+      "acceptance_criteria": [
+        "System projects incoming and outgoing cash based on regular patterns",
+        "Forecast includes known approved but unpaid expenses",
+        "Visual cash flow forecast chart for next 30/60/90 days",
+        "Forecast accuracy is tracked and displayed",
+        "Users can adjust forecast assumptions manually"
+      ],
+      "user_stories": [
+        "As a Finance Manager, I want to see cash flow forecast so that I can plan for upcoming expenses",
+        "As a Business Owner, I want to know projected cash position so that I can make investment decisions"
+      ],
+      "competitor_insight_ids": []
+    },
+    {
+      "id": "feature-15",
+      "title": "Multi-Level Approval Workflow",
+      "description": "Implement configurable multi-level approval chains. Different expense amounts or categories can require different approval paths. Support parallel and sequential approvals.",
+      "rationale": "Larger SMEs need more sophisticated approval workflows where expenses above certain thresholds require additional approvals. This addresses competitor limitations in approval complexity.",
+      "priority": "could",
+      "complexity": "high",
+      "impact": "medium",
+      "phase_id": "phase-3",
+      "dependencies": ["feature-3"],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Admins can configure approval rules based on amount thresholds",
+        "Approval chain can include 2-3 levels",
+        "Each level shows current status and pending approver",
+        "Escalation after configurable timeout",
+        "Delegation capability when approver is unavailable"
+      ],
+      "user_stories": [
+        "As an Admin, I want to configure approval rules so that large expenses require founder approval",
+        "As a Manager, I want to delegate my approval authority when on vacation"
+      ],
+      "competitor_insight_ids": ["pain-4-4", "gap-6"]
+    },
+    {
+      "id": "feature-16",
+      "title": "Task Assignment and Comments",
+      "description": "Allow users to assign tasks related to transactions or expenses to team members. Add commenting functionality for collaboration on specific items.",
+      "rationale": "Finance teams need to collaborate on complex items. Task assignment and comments reduce email/messenger overhead and keep context in the system.",
+      "priority": "could",
+      "complexity": "medium",
+      "impact": "medium",
+      "phase_id": "phase-3",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Users can assign tasks related to a transaction or expense",
+        "Tasks have due dates and status (open/completed)",
+        "Users can add comments to transactions and expenses",
+        "Comments support @mentions for notifications",
+        "Task dashboard shows all assigned tasks"
+      ],
+      "user_stories": [
+        "As a Manager, I want to assign an accountant to verify a transaction so that work is tracked",
+        "As an Accountant, I want to comment on a transaction to note my findings"
+      ],
+      "competitor_insight_ids": ["pain-5-3"]
+    },
+    {
+      "id": "feature-17",
+      "title": "ML-Powered Auto-Categorization",
+      "description": "Implement machine learning model for transaction categorization that learns from user corrections. Improves over time based on organization's specific patterns.",
+      "rationale": "Rule-based categorization is powerful but limited. ML can detect patterns that are difficult to express as rules, further reducing manual categorization. This is a major market trend.",
+      "priority": "could",
+      "complexity": "high",
+      "impact": "high",
+      "phase_id": "phase-4",
+      "dependencies": ["feature-4", "feature-9"],
+      "status": "idea",
+      "acceptance_criteria": [
+        "ML model trained on organization's historical categorization data",
+        "Model suggests category with confidence score",
+        "User corrections feed back to improve model",
+        "Model performance dashboard for admins",
+        "Fallback to rule-based when ML confidence is low"
+      ],
+      "user_stories": [
+        "As an Accountant, I want the system to learn from my corrections so that categorization improves over time",
+        "As a Manager, I want ML-powered categorization to handle complex patterns that are hard to express as rules"
+      ],
+      "competitor_insight_ids": ["pain-1-2", "gap-2"]
+    },
+    {
+      "id": "feature-18",
+      "title": "Anomaly Detection and Alerts",
+      "description": "Implement AI-powered anomaly detection to identify unusual transactions. Alert users to potential fraud, duplicate payments, or unusual spending patterns.",
+      "rationale": "Proactive anomaly detection prevents financial losses and fraud. This is a significant value-add that no competitor offers and addresses market trend for AI in finance.",
+      "priority": "could",
+      "complexity": "high",
+      "impact": "high",
+      "phase_id": "phase-4",
+      "dependencies": ["feature-17"],
+      "status": "idea",
+      "acceptance_criteria": [
+        "System flags transactions that deviate significantly from historical patterns",
+        "Duplicate payment detection based on amount, counterparty, and timing",
+        "Unusual timing detection (e.g., weekend payments, unusual hours)",
+        "Configurable alert thresholds",
+        "Alert dashboard and email notifications for flagged items"
+      ],
+      "user_stories": [
+        "As a Finance Manager, I want to be alerted to unusual transactions so that I can investigate potential fraud",
+        "As an Accountant, I want duplicate payment warnings so that I can prevent paying the same invoice twice"
+      ],
+      "competitor_insight_ids": []
+    },
+    {
+      "id": "feature-19",
+      "title": "Direct Bank API Integrations",
+      "description": "Implement direct integrations with major Russian banks (Tinkoff, Sberbank, Alfa-Bank) to fetch transactions without going through 1C. Real-time transaction updates.",
+      "rationale": "While 1C integration is the core differentiator, direct bank integrations would provide real-time data and work for users without 1C. This expands the addressable market.",
+      "priority": "wont",
+      "complexity": "high",
+      "impact": "medium",
+      "phase_id": "phase-4",
+      "dependencies": [],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Integration with at least 2 major Russian banks",
+        "OAuth-based secure bank connection",
+        "Near-real-time transaction sync (within 1 hour)",
+        "Reconciliation between direct bank data and 1C data",
+        "Clear data source indication in transaction list"
+      ],
+      "user_stories": [
+        "As a Finance Manager, I want real-time bank transaction data so that I see payments immediately",
+        "As a user without 1C, I want to connect my bank directly so that I can use the categorization features"
+      ],
+      "competitor_insight_ids": ["pain-4-1"]
+    },
+    {
+      "id": "feature-20",
+      "title": "Multi-Tenant and White-Label Support",
+      "description": "Implement multi-tenant architecture for SaaS deployment. Add white-label customization (logos, colors, custom domain) for enterprise customers.",
+      "rationale": "For scaling the business beyond individual deployments, multi-tenant SaaS model is needed. White-label attracts accounting firms who want to offer to their clients.",
+      "priority": "wont",
+      "complexity": "high",
+      "impact": "medium",
+      "phase_id": "phase-4",
+      "dependencies": ["feature-4"],
+      "status": "idea",
+      "acceptance_criteria": [
+        "Database schema supports tenant isolation",
+        "Admin portal for tenant management",
+        "White-label configuration (logo, colors, email templates)",
+        "Custom domain support per tenant",
+        "Usage-based billing infrastructure"
+      ],
+      "user_stories": [
+        "As an Accounting Firm, I want to offer branded expense management to my clients",
+        "As a SaaS Operator, I want to onboard new customers without manual setup"
+      ],
+      "competitor_insight_ids": []
+    }
+  ],
+  "metadata": {
+    "created_at": "2025-12-21T13:00:00Z",
+    "updated_at": "2025-12-21T13:00:00Z",
+    "generated_by": "roadmap_features agent",
+    "prioritization_framework": "MoSCoW",
+    "competitor_analysis_used": true,
+    "total_features": 20,
+    "features_by_priority": {
+      "must": 4,
+      "should": 8,
+      "could": 6,
+      "wont": 2
+    },
+    "features_addressing_competitor_pain_points": 14
+  }
+}
