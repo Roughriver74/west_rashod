@@ -10,6 +10,7 @@ import AnalyticsPage from './pages/AnalyticsPage'
 import RegularPaymentsPage from './pages/RegularPaymentsPage'
 import ExpensesPage from './pages/ExpensesPage'
 import CategoriesPage from './pages/CategoriesPage'
+import CategorizationRulesPage from './pages/CategorizationRulesPage'
 import OrganizationsPage from './pages/OrganizationsPage'
 import ContractorsPage from './pages/ContractorsPage'
 import MappingsPage from './pages/MappingsPage'
@@ -49,6 +50,7 @@ function App() {
                 <Route path="/regular-payments" element={<RegularPaymentsPage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />
                 <Route path="/categories" element={<CategoriesPage />} />
+                <Route path="/categorization-rules" element={<CategorizationRulesPage />} />
                 <Route path="/organizations" element={<OrganizationsPage />} />
                 <Route path="/contractors" element={<ContractorsPage />} />
                 <Route path="/mappings" element={<MappingsPage />} />
