@@ -150,7 +150,8 @@ const CategoryBreakdownChart: React.FC<Props> = ({
               <XAxis type="number" tickFormatter={formatCurrency} tick={{ fontSize: 11 }} />
               <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={95} />
               <Tooltip
-                formatter={(value: number, name: string) => {
+                formatter={(value: number | undefined, name: string | undefined) => {
+                  if (value === undefined) return ''
                   if (name === 'Сумма') return formatCurrency(value)
                   return value
                 }}
@@ -175,7 +176,7 @@ const CategoryBreakdownChart: React.FC<Props> = ({
                 cx="50%"
                 cy="50%"
                 labelLine={true}
-                label={({ name, percent }) => `${name}: ${(percent).toFixed(1)}%`}
+                label={({ name, percent }) => `${name}: ${(percent ?? 0).toFixed(1)}%`}
                 outerRadius={120}
                 fill="#8884d8"
                 dataKey="value"
@@ -185,7 +186,7 @@ const CategoryBreakdownChart: React.FC<Props> = ({
                 ))}
               </Pie>
               <Tooltip
-                formatter={(value: number) => formatCurrency(value)}
+                formatter={(value: number | undefined) => value !== undefined ? formatCurrency(value) : ''}
               />
             </PieChart>
           </ResponsiveContainer>

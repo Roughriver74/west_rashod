@@ -1,0 +1,3 @@
+feat(sync): consolidate sync pages into single interface
+
+Merge automatic sync settings from SyncSettingsPage into Sync1CPage, providing a unified synchronization control panel. Users can now manage both manual and automatic sync configuration from a single page, improving navigation and UX consistency.

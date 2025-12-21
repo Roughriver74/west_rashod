@@ -44,11 +44,7 @@ def test_connection(
     db: Session = Depends(get_db)
 ):
     """Test connection to 1C OData service."""
-    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins and managers can test 1C connection"
-        )
+    # Role check removed - all authenticated users can test 1C connection
 
     try:
         client = create_1c_client_from_env()
@@ -80,12 +76,7 @@ def sync_bank_transactions(
     logger.info(f"=== SYNC BANK TRANSACTIONS START ===")
     logger.info(f"User: {current_user.username}, Request: {sync_request}")
 
-    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
-        logger.warning(f"Access denied for user {current_user.username}")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins and managers can sync from 1C"
-        )
+    # Role check removed - all authenticated users can sync from 1C
 
     try:
         logger.info("Creating 1C client...")
@@ -152,12 +143,7 @@ def sync_organizations(
     logger.info(f"=== SYNC ORGANIZATIONS START ===")
     logger.info(f"User: {current_user.username}")
 
-    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
-        logger.warning(f"Access denied for user {current_user.username}")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins and managers can sync from 1C"
-        )
+    # Role check removed - all authenticated users can sync from 1C
 
     try:
         from app.db.models import Organization
@@ -264,12 +250,7 @@ def sync_categories(
     logger.info(f"=== SYNC CATEGORIES START ===")
     logger.info(f"User: {current_user.username}")
 
-    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
-        logger.warning(f"Access denied for user {current_user.username}")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins and managers can sync from 1C"
-        )
+    # Role check removed - all authenticated users can sync from 1C
 
     try:
         from app.db.models import BudgetCategory, ExpenseTypeEnum

@@ -170,7 +170,8 @@ const CounterpartyAnalysisChart: React.FC<Props> = ({
               width={145}
             />
             <RechartsTooltip
-              formatter={(value: number, name: string) => {
+              formatter={(value: number | undefined, name: string | undefined) => {
+                if (value === undefined) return ''
                 if (name === 'Сумма') return formatCurrency(value)
                 return value
               }}

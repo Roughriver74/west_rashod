@@ -179,7 +179,7 @@ export default function AnalyticsPage() {
               value={kpis.total_transactions}
               prefix={<BankOutlined />}
               suffix={
-                kpis.transactions_change !== null && (
+                kpis.transactions_change !== undefined && (
                   <Tag color={kpis.transactions_change >= 0 ? 'green' : 'red'} style={{ marginLeft: 8 }}>
                     {kpis.transactions_change >= 0 ? '+' : ''}{kpis.transactions_change}
                   </Tag>
@@ -198,7 +198,7 @@ export default function AnalyticsPage() {
               suffix="₽"
               valueStyle={{ color: '#cf1322' }}
             />
-            {kpis.debit_change_percent !== null && (
+            {kpis.debit_change_percent !== undefined && (
               <Text type={kpis.debit_change_percent <= 0 ? 'success' : 'danger'}>
                 {kpis.debit_change_percent >= 0 ? '+' : ''}{kpis.debit_change_percent.toFixed(1)}% vs пред. период
               </Text>
@@ -215,7 +215,7 @@ export default function AnalyticsPage() {
               suffix="₽"
               valueStyle={{ color: '#3f8600' }}
             />
-            {kpis.credit_change_percent !== null && (
+            {kpis.credit_change_percent !== undefined && (
               <Text type={kpis.credit_change_percent >= 0 ? 'success' : 'danger'}>
                 {kpis.credit_change_percent >= 0 ? '+' : ''}{kpis.credit_change_percent.toFixed(1)}% vs пред. период
               </Text>

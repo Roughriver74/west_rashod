@@ -1,7 +1,5 @@
 import apiClient from './client'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
-
 export interface SyncSettings {
   id: number
   auto_sync_enabled: boolean

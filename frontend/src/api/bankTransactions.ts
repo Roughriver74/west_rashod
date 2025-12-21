@@ -57,7 +57,15 @@ export interface TransactionFilters {
 }
 
 export const getBankTransactions = async (filters: TransactionFilters): Promise<BankTransaction[]> => {
-  const response = await apiClient.get('/bank-transactions', { params: filters })
+  // Remove undefined/null values from params
+  const cleanParams = Object.entries(filters).reduce((acc, [key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      acc[key] = value
+    }
+    return acc
+  }, {} as Record<string, any>)
+
+  const response = await apiClient.get('/bank-transactions', { params: cleanParams })
   return response.data
 }
 
@@ -101,21 +109,23 @@ export interface BankTransactionKPIs {
   total_credit_amount: number
   net_flow: number
   total_transactions: number
-  debit_change_percent: number | null
-  credit_change_percent: number | null
-  net_flow_change_percent: number | null
-  transactions_change: number | null
+  debit_change_percent?: number
+  credit_change_percent?: number
+  net_flow_change_percent?: number
+  transactions_change?: number
   new_count: number
   categorized_count: number
+  matched_count: number
   approved_count: number
   needs_review_count: number
   ignored_count: number
   new_percent: number
   categorized_percent: number
+  matched_percent: number
   approved_percent: number
   needs_review_percent: number
   ignored_percent: number
-  avg_category_confidence: number | null
+  avg_category_confidence?: number
   auto_categorized_count: number
   auto_categorized_percent: number
   regular_payments_count: number
@@ -130,22 +140,22 @@ export interface MonthlyFlowData {
   credit_amount: number
   net_flow: number
   transaction_count: number
-  avg_confidence: number | null
+  avg_confidence?: number
 }
 
 export interface CategoryBreakdown {
   category_id: number
   category_name: string
-  category_type: string | null
+  category_type?: string
   transaction_count: number
   total_amount: number
   avg_amount: number
-  avg_confidence: number | null
+  avg_confidence?: number
   percent_of_total: number
 }
 
 export interface CounterpartyBreakdown {
-  counterparty_inn: string | null
+  counterparty_inn?: string
   counterparty_name: string
   transaction_count: number
   total_amount: number
@@ -168,7 +178,7 @@ export interface BankTransactionAnalytics {
     conversion_rate_to_approved: number
   }
   ai_performance: {
-    confidence_distribution: { bracket: string; count: number; total_amount: number; percent_of_total: number }[]
+    confidence_distribution: { bracket: string; min_confidence: number; max_confidence: number; count: number; total_amount: number; percent_of_total: number }[]
     avg_confidence: number
     high_confidence_count: number
     high_confidence_percent: number
@@ -180,11 +190,18 @@ export interface BankTransactionAnalytics {
     transaction_date: string
     counterparty_name: string
     amount: number
-    payment_purpose: string | null
-    suggested_category_name: string | null
+    payment_purpose?: string
+    suggested_category_name?: string
     category_confidence: number
     status: string
   }[]
+  activity_heatmap: { day_of_week: number; hour: number; transaction_count: number; total_amount: number; avg_amount: number }[]
+  status_timeline: { date: string; new_count: number; categorized_count: number; matched_count: number; approved_count: number; needs_review_count: number; ignored_count: number }[]
+  confidence_scatter: { transaction_id: number; transaction_date: string; counterparty_name?: string; amount: number; category_confidence?: number; status: string; transaction_type: 'DEBIT' | 'CREDIT'; is_regular_payment: boolean }[]
+  regular_payments: { counterparty_inn?: string; counterparty_name: string; category_name: string; avg_amount: number; amount_variance: number; payment_count: number; avg_days_between?: number; last_payment_date: string; next_expected_date?: string }[]
+  exhibitions: { transaction_id: number; transaction_date: string; exhibition: string; counterparty_name: string; amount: number; category_name?: string }[]
+  regional_distribution: { region: string; transaction_count: number; total_amount: number; percent_of_total: number }[]
+  source_distribution: { payment_source: string; year: number; month: number; month_name: string; transaction_count: number; total_amount: number }[]
 }
 
 export interface AnalyticsFilters {

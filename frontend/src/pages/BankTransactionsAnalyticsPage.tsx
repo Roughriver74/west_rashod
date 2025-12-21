@@ -3,7 +3,7 @@ import { Card, Tabs, Select, DatePicker, Row, Col, Button, Space, message } from
 import { useQuery } from '@tanstack/react-query'
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { Dayjs } from 'dayjs'
-import { bankTransactionsApi } from '../api/bankTransactions'
+import { getAnalytics } from '../api/bankTransactions'
 import BankTransactionsKPICards from '../components/bank/BankTransactionsKPICards'
 import CashFlowChart from '../components/bank/CashFlowChart'
 import DailyFlowChart from '../components/bank/DailyFlowChart'
@@ -59,7 +59,7 @@ const BankTransactionsAnalyticsPage: React.FC = () => {
     if (region) params.region = region
 
     return params
-  }, [selectedDepartment, year, month, quarter, dateRange, transactionType, paymentSource, status, region])
+  }, [year, month, quarter, dateRange, transactionType, paymentSource, status, region])
 
   // Fetch analytics data
   const {
@@ -69,7 +69,7 @@ const BankTransactionsAnalyticsPage: React.FC = () => {
     refetch,
   } = useQuery({
     queryKey: ['bank-transactions-analytics', analyticsParams],
-    queryFn: () => bankTransactionsApi.getAnalytics(analyticsParams),
+    queryFn: () => getAnalytics(analyticsParams),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 

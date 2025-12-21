@@ -122,8 +122,8 @@ const ExhibitionSpendingInsights: React.FC<ExhibitionSpendingInsightsProps> = ({
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} />
                     <YAxis tickFormatter={(value) => formatCurrency(Number(value))} />
                     <RechartsTooltip
-                      formatter={(value: number) =>
-                        formatCurrency(Number(value))
+                      formatter={(value: number | undefined) =>
+                        value !== undefined ? formatCurrency(Number(value)) : ''
                       }
                       labelFormatter={(label: string, payload) => {
                         const source = payload?.[0]?.payload

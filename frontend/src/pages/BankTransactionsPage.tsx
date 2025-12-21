@@ -77,6 +77,14 @@ const statusLabels: Record<string, string> = {
   IGNORED: 'Игнорирована',
 }
 
+const statusShortLabels: Record<string, string> = {
+  NEW: 'Новая',
+  CATEGORIZED: 'Категориз.',
+  APPROVED: 'Утв.',
+  NEEDS_REVIEW: 'Проверка',
+  IGNORED: 'Игнор.',
+}
+
 const formatAmount = (amount: number) => {
   return Number(amount).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽'
 }
@@ -370,17 +378,19 @@ export default function BankTransactionsPage() {
       title: 'Тип',
       dataIndex: 'transaction_type',
       key: 'transaction_type',
-      width: 80,
+      width: 120,
       render: (type, record) => (
-        <Space size="small">
-          <Tag color={type === 'DEBIT' ? 'red' : 'green'}>
+        <Space direction="vertical" size={2}>
+          <Tag color={type === 'DEBIT' ? 'red' : 'green'} style={{ margin: 0 }}>
             {type === 'DEBIT' ? 'Расход' : 'Приход'}
           </Tag>
-          {record.payment_source === 'CASH' && (
-            <Tooltip title="Касса">
-              <WalletOutlined style={{ color: '#722ed1' }} />
-            </Tooltip>
-          )}
+          <Tag
+            color={record.payment_source === 'CASH' ? 'purple' : 'blue'}
+            icon={record.payment_source === 'CASH' ? <WalletOutlined /> : <BankOutlined />}
+            style={{ margin: 0, fontSize: '11px' }}
+          >
+            {record.payment_source === 'CASH' ? 'Касса' : 'Безнал'}
+          </Tag>
         </Space>
       ),
     },
@@ -401,11 +411,14 @@ export default function BankTransactionsPage() {
       title: 'Контрагент',
       dataIndex: 'counterparty_name',
       key: 'counterparty_name',
-      width: 200,
-      ellipsis: true,
+      width: 220,
+      ellipsis: {
+        showTitle: false,
+      },
       render: (name, record) => (
         <Tooltip title={
           <div>
+            <div>{name || '-'}</div>
             <div>ИНН: {record.counterparty_inn || '-'}</div>
             {record.counterparty_bank && <div>Банк: {record.counterparty_bank}</div>}
           </div>
@@ -418,19 +431,22 @@ export default function BankTransactionsPage() {
       title: 'Назначение',
       dataIndex: 'payment_purpose',
       key: 'payment_purpose',
-      ellipsis: true,
+      width: 250,
+      ellipsis: {
+        showTitle: false,
+      },
       render: (purpose, record) => (
-        <Tooltip title={purpose}>
+        <Tooltip title={
           <div>
-            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {purpose || '-'}
-            </div>
+            <div>{purpose || '-'}</div>
             {record.business_operation && (
-              <Text type="secondary" style={{ fontSize: '11px' }}>
-                {record.business_operation}
-              </Text>
+              <div style={{ marginTop: 4, fontSize: '11px' }}>
+                Хоз. операция: {record.business_operation}
+              </div>
             )}
           </div>
+        }>
+          <span>{purpose || '-'}</span>
         </Tooltip>
       ),
     },
@@ -477,8 +493,12 @@ export default function BankTransactionsPage() {
       title: 'Статус',
       dataIndex: 'status',
       key: 'status',
-      width: 140,
-      render: (status) => <Tag color={statusColors[status]}>{statusLabels[status]}</Tag>,
+      width: 120,
+      render: (status) => (
+        <Tooltip title={statusLabels[status]}>
+          <Tag color={statusColors[status]}>{statusShortLabels[status] || statusLabels[status]}</Tag>
+        </Tooltip>
+      ),
     },
     {
       title: 'Действия',
@@ -763,7 +783,7 @@ export default function BankTransactionsPage() {
             showSizeChanger: true,
             showTotal: (total) => `Всего: ${total}`,
           }}
-          scroll={{ x: 1400 }}
+          scroll={{ x: 1500 }}
           size="middle"
         />
       </Card>

@@ -52,12 +52,7 @@ def get_sync_settings(
     db: Session = Depends(get_db)
 ):
     """Get current sync settings."""
-    # Only admins and managers can view sync settings
-    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins and managers can view sync settings"
-        )
+    # Role check removed - all authenticated users can view sync settings
 
     settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
 
@@ -78,12 +73,7 @@ def update_sync_settings(
     db: Session = Depends(get_db)
 ):
     """Update sync settings."""
-    # Only admins can update sync settings
-    if current_user.role != UserRoleEnum.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can update sync settings"
-        )
+    # Role check removed - all authenticated users can update sync settings
 
     settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
 
@@ -113,12 +103,7 @@ def trigger_sync_now(
     db: Session = Depends(get_db)
 ):
     """Manually trigger sync task immediately."""
-    # Only admins and managers can trigger sync
-    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins and managers can trigger sync"
-        )
+    # Role check removed - all authenticated users can trigger sync
 
     try:
         from app.celery_app import sync_1c_transactions_task
@@ -148,12 +133,7 @@ def get_task_status(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get status of a sync task."""
-    # Only admins and managers can check task status
-    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins and managers can check task status"
-        )
+    # Role check removed - all authenticated users can check task status
 
     try:
         from app.celery_app import celery_app

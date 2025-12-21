@@ -112,7 +112,7 @@ const RegionalDistributionChart: React.FC<Props> = ({
                     cx="50%"
                     cy="50%"
                     labelLine={true}
-                    label={({ name, percent }) => `${name}: ${percent.toFixed(1)}%`}
+                    label={({ name, percent }) => `${name}: ${(percent ?? 0).toFixed(1)}%`}
                     outerRadius={120}
                     fill="#8884d8"
                     dataKey="value"
@@ -125,7 +125,7 @@ const RegionalDistributionChart: React.FC<Props> = ({
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
+                    formatter={(value: number | undefined) => value !== undefined ? formatCurrency(value) : ''}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -190,7 +190,7 @@ const RegionalDistributionChart: React.FC<Props> = ({
                     height={80}
                   />
                   <YAxis tickFormatter={formatCurrency} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Tooltip formatter={(value: number | undefined) => value !== undefined ? formatCurrency(value) : ''} />
                   <Legend wrapperStyle={{ paddingTop: 20 }} />
                   <Bar dataKey="BANK" name="Банк" fill={SOURCE_COLORS.BANK} stackId="a" />
                   <Bar dataKey="CASH" name="Касса" fill={SOURCE_COLORS.CASH} stackId="a" />

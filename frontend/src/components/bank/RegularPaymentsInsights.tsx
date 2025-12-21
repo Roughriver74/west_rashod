@@ -178,8 +178,8 @@ const RegularPaymentsInsights: React.FC<RegularPaymentsInsightsProps> = ({ data 
                       width={120}
                     />
                     <RechartsTooltip
-                      formatter={(value: number, _name: string, props: any) => [
-                        formatCurrency(Number(value)),
+                      formatter={(value: number | undefined, _name: string | undefined, props: any) => [
+                        value !== undefined ? formatCurrency(Number(value)) : '',
                         props.payload.fullName,
                       ]}
                     />

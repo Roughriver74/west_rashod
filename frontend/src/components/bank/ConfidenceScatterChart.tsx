@@ -114,7 +114,7 @@ const ConfidenceScatterChart: React.FC<Props> = ({ data, loading }) => {
             tickFormatter={(value) => `${Math.round(value * 100)}%`}
           />
           <Tooltip
-            formatter={(value: any, name: string) => {
+            formatter={(value: any, name: string | undefined) => {
               if (name === 'Уверенность') {
                 return [`${(value * 100).toFixed(1)}%`, name]
               }

@@ -36,6 +36,7 @@ from app.api.v1.sync_settings import router as sync_settings_router
 from app.api.v1.expenses import router as expenses_router
 from app.api.v1.tasks import router as tasks_router
 from app.api.v1.websocket import router as websocket_router
+from app.api.v1.categorization_patterns import router as categorization_patterns_router
 
 
 @asynccontextmanager
@@ -120,6 +121,7 @@ app.include_router(sync_1c_router, prefix=settings.API_PREFIX)
 app.include_router(sync_settings_router, prefix=settings.API_PREFIX)
 app.include_router(tasks_router, prefix=settings.API_PREFIX)
 app.include_router(websocket_router, prefix=settings.API_PREFIX)
+app.include_router(categorization_patterns_router, prefix=settings.API_PREFIX)
 
 
 if __name__ == "__main__":

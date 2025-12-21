@@ -76,7 +76,8 @@ const DailyFlowChart: React.FC<Props> = ({ data, loading, title = 'Ежедне�
             allowDecimals={false}
           />
           <Tooltip
-            formatter={(value: number, name: string) => {
+            formatter={(value: number | undefined, name: string | undefined) => {
+              if (value === undefined) return ''
               if (name === 'Транзакций') {
                 return value
               }

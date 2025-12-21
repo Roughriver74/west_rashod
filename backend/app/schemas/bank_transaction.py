@@ -333,6 +333,79 @@ class LowConfidenceItem(BaseModel):
     status: str
 
 
+class ActivityHeatmapPoint(BaseModel):
+    """Activity heatmap data point (day of week × hour)."""
+    day_of_week: int  # 0-6 (Monday-Sunday)
+    hour: int  # 0-23
+    transaction_count: int
+    total_amount: Decimal
+    avg_amount: Decimal
+
+
+class StatusTimelinePoint(BaseModel):
+    """Status distribution over time."""
+    date: date
+    new_count: int = 0
+    categorized_count: int = 0
+    matched_count: int = 0
+    approved_count: int = 0
+    needs_review_count: int = 0
+    ignored_count: int = 0
+
+
+class ConfidenceScatterPoint(BaseModel):
+    """Scatter plot point for confidence analysis."""
+    transaction_id: int
+    transaction_date: date
+    counterparty_name: Optional[str] = None
+    amount: Decimal
+    category_confidence: Optional[float] = None
+    status: str
+    transaction_type: str
+    is_regular_payment: bool = False
+
+
+class RegionalData(BaseModel):
+    """Regional distribution data."""
+    region: str
+    transaction_count: int
+    total_amount: Decimal
+    avg_amount: Decimal
+    percent_of_total: float = 0.0
+
+
+class SourceDistribution(BaseModel):
+    """Payment source distribution."""
+    source: str
+    transaction_count: int
+    total_amount: Decimal
+    percent_of_total: float = 0.0
+
+
+class RegularPaymentSummary(BaseModel):
+    """Summary of regular payment pattern."""
+    counterparty_inn: Optional[str] = None
+    counterparty_name: Optional[str] = None
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    avg_amount: Decimal
+    frequency_days: int
+    last_payment_date: date
+    transaction_count: int
+    is_monthly: bool = False
+    is_quarterly: bool = False
+
+
+class ExhibitionData(BaseModel):
+    """Exhibition spending data."""
+    exhibition: str
+    transaction_count: int
+    total_amount: Decimal
+    avg_amount: Decimal
+    first_transaction_date: date
+    last_transaction_date: date
+
+
 class BankTransactionAnalytics(BaseModel):
     """Complete analytics data for bank transactions."""
     kpis: BankTransactionKPIs
@@ -341,9 +414,16 @@ class BankTransactionAnalytics(BaseModel):
     top_categories: List[CategoryBreakdown]
     category_type_distribution: List[CategoryBreakdown]
     top_counterparties: List[CounterpartyBreakdown]
+    regional_distribution: List[RegionalData]
+    source_distribution: List[SourceDistribution]
     processing_funnel: ProcessingFunnelData
     ai_performance: AIPerformanceData
     low_confidence_items: List[LowConfidenceItem]
+    activity_heatmap: List[ActivityHeatmapPoint]
+    status_timeline: List[StatusTimelinePoint]
+    confidence_scatter: List[ConfidenceScatterPoint]
+    regular_payments: List[RegularPaymentSummary]
+    exhibitions: List[ExhibitionData]
 
 
 # ==================== Regular Payment Patterns ====================

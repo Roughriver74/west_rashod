@@ -23,6 +23,8 @@ from app.schemas.bank_transaction import (
     BankTransactionKPIs, MonthlyFlowData, DailyFlowData, CategoryBreakdown,
     CounterpartyBreakdown, ProcessingFunnelData, ProcessingFunnelStage,
     AIPerformanceData, ConfidenceBracket, LowConfidenceItem,
+    ActivityHeatmapPoint, StatusTimelinePoint, ConfidenceScatterPoint,
+    RegionalData, SourceDistribution, RegularPaymentSummary, ExhibitionData,
     RegularPaymentPattern, RegularPaymentPatternList,
     AccountGrouping, AccountGroupingList
 )
@@ -580,6 +582,171 @@ def get_analytics(
             status=t.status.value
         ))
 
+    # ====== Activity Heatmap (Day of Week × Hour) ======
+    heatmap_dict = defaultdict(lambda: {'count': 0, 'total': Decimal(0)})
+    for t in transactions:
+        day_of_week = t.transaction_date.weekday()  # 0=Monday, 6=Sunday
+        # Extract hour from created_at if available, otherwise use 12 as default
+        hour = t.created_at.hour if t.created_at else 12
+        key = (day_of_week, hour)
+        heatmap_dict[key]['count'] += 1
+        heatmap_dict[key]['total'] += t.amount
+
+    activity_heatmap = []
+    for (day, hour), data in sorted(heatmap_dict.items()):
+        activity_heatmap.append(ActivityHeatmapPoint(
+            day_of_week=day,
+            hour=hour,
+            transaction_count=data['count'],
+            total_amount=data['total'],
+            avg_amount=data['total'] / data['count'] if data['count'] > 0 else Decimal(0)
+        ))
+
+    # ====== Status Timeline ======
+    timeline_dict = defaultdict(lambda: {
+        'new': 0, 'categorized': 0, 'matched': 0, 'approved': 0, 'needs_review': 0, 'ignored': 0
+    })
+    for t in transactions:
+        day_key = t.transaction_date
+        if t.status == BankTransactionStatusEnum.NEW:
+            timeline_dict[day_key]['new'] += 1
+        elif t.status == BankTransactionStatusEnum.CATEGORIZED:
+            timeline_dict[day_key]['categorized'] += 1
+        elif t.status == BankTransactionStatusEnum.MATCHED:
+            timeline_dict[day_key]['matched'] += 1
+        elif t.status == BankTransactionStatusEnum.APPROVED:
+            timeline_dict[day_key]['approved'] += 1
+        elif t.status == BankTransactionStatusEnum.NEEDS_REVIEW:
+            timeline_dict[day_key]['needs_review'] += 1
+        elif t.status == BankTransactionStatusEnum.IGNORED:
+            timeline_dict[day_key]['ignored'] += 1
+
+    status_timeline = []
+    for day_key, counts in sorted(timeline_dict.items()):
+        status_timeline.append(StatusTimelinePoint(
+            date=day_key,
+            new_count=counts['new'],
+            categorized_count=counts['categorized'],
+            matched_count=counts['matched'],
+            approved_count=counts['approved'],
+            needs_review_count=counts['needs_review'],
+            ignored_count=counts['ignored']
+        ))
+
+    # ====== Confidence Scatter (all categorized transactions) ======
+    confidence_scatter = []
+    for t in categorized_transactions[:500]:  # Limit to 500 points for performance
+        confidence_scatter.append(ConfidenceScatterPoint(
+            transaction_id=t.id,
+            transaction_date=t.transaction_date,
+            counterparty_name=t.counterparty_name,
+            amount=t.amount,
+            category_confidence=float(t.category_confidence) if t.category_confidence else None,
+            status=t.status.value,
+            transaction_type=t.transaction_type.value,
+            is_regular_payment=t.is_regular_payment
+        ))
+
+    # ====== Regional Distribution ======
+    region_dict = defaultdict(lambda: {'count': 0, 'total': Decimal(0)})
+    total_with_region = 0
+    for t in transactions:
+        if t.region:
+            region_dict[t.region.value]['count'] += 1
+            region_dict[t.region.value]['total'] += t.amount
+            total_with_region += 1
+
+    regional_distribution = []
+    for region_key, data in sorted(region_dict.items(), key=lambda x: x[1]['total'], reverse=True):
+        regional_distribution.append(RegionalData(
+            region=region_key,
+            transaction_count=data['count'],
+            total_amount=data['total'],
+            avg_amount=data['total'] / data['count'] if data['count'] > 0 else Decimal(0),
+            percent_of_total=float(data['count'] / total_with_region * 100) if total_with_region > 0 else 0
+        ))
+
+    # ====== Source Distribution ======
+    source_dict = defaultdict(lambda: {'count': 0, 'total': Decimal(0)})
+    for t in transactions:
+        source_key = t.payment_source.value if t.payment_source else 'BANK'
+        source_dict[source_key]['count'] += 1
+        source_dict[source_key]['total'] += t.amount
+
+    source_distribution = []
+    for source_key, data in sorted(source_dict.items()):
+        source_distribution.append(SourceDistribution(
+            source=source_key,
+            transaction_count=data['count'],
+            total_amount=data['total'],
+            percent_of_total=float(data['count'] / total_count * 100) if total_count > 0 else 0
+        ))
+
+    # ====== Regular Payments Summary ======
+    regular_dict = defaultdict(lambda: {
+        'count': 0, 'total': Decimal(0), 'first_date': None, 'last_date': None,
+        'name': '', 'category_id': None, 'category_name': None
+    })
+    for t in regular_payments:
+        key = t.counterparty_inn or t.counterparty_name or 'Unknown'
+        regular_dict[key]['count'] += 1
+        regular_dict[key]['total'] += t.amount
+        regular_dict[key]['name'] = t.counterparty_name or 'Unknown'
+        if t.category_id:
+            regular_dict[key]['category_id'] = t.category_id
+            regular_dict[key]['category_name'] = t.category_rel.name if t.category_rel else None
+        if regular_dict[key]['first_date'] is None or t.transaction_date < regular_dict[key]['first_date']:
+            regular_dict[key]['first_date'] = t.transaction_date
+        if regular_dict[key]['last_date'] is None or t.transaction_date > regular_dict[key]['last_date']:
+            regular_dict[key]['last_date'] = t.transaction_date
+
+    regular_payments_summary = []
+    for cp_key, data in sorted(regular_dict.items(), key=lambda x: x[1]['count'], reverse=True)[:20]:
+        if data['first_date'] and data['last_date'] and data['count'] > 1:
+            frequency_days = int((data['last_date'] - data['first_date']).days / (data['count'] - 1))
+        else:
+            frequency_days = 30
+
+        is_monthly = 25 <= frequency_days <= 35
+        is_quarterly = 85 <= frequency_days <= 95
+
+        regular_payments_summary.append(RegularPaymentSummary(
+            counterparty_inn=cp_key if len(cp_key) == 10 or len(cp_key) == 12 else None,
+            counterparty_name=data['name'],
+            category_id=data['category_id'],
+            category_name=data['category_name'],
+            avg_amount=data['total'] / data['count'] if data['count'] > 0 else Decimal(0),
+            frequency_days=frequency_days,
+            last_payment_date=data['last_date'] or date.today(),
+            transaction_count=data['count'],
+            is_monthly=is_monthly,
+            is_quarterly=is_quarterly
+        ))
+
+    # ====== Exhibition Spending ======
+    exhibition_dict = defaultdict(lambda: {
+        'count': 0, 'total': Decimal(0), 'first_date': None, 'last_date': None
+    })
+    for t in transactions:
+        if t.exhibition:
+            exhibition_dict[t.exhibition]['count'] += 1
+            exhibition_dict[t.exhibition]['total'] += t.amount
+            if exhibition_dict[t.exhibition]['first_date'] is None or t.transaction_date < exhibition_dict[t.exhibition]['first_date']:
+                exhibition_dict[t.exhibition]['first_date'] = t.transaction_date
+            if exhibition_dict[t.exhibition]['last_date'] is None or t.transaction_date > exhibition_dict[t.exhibition]['last_date']:
+                exhibition_dict[t.exhibition]['last_date'] = t.transaction_date
+
+    exhibitions = []
+    for exhibition_name, data in sorted(exhibition_dict.items(), key=lambda x: x[1]['total'], reverse=True):
+        exhibitions.append(ExhibitionData(
+            exhibition=exhibition_name,
+            transaction_count=data['count'],
+            total_amount=data['total'],
+            avg_amount=data['total'] / data['count'] if data['count'] > 0 else Decimal(0),
+            first_transaction_date=data['first_date'] or date.today(),
+            last_transaction_date=data['last_date'] or date.today()
+        ))
+
     return BankTransactionAnalytics(
         kpis=kpis,
         monthly_flow=monthly_flow,
@@ -587,9 +754,16 @@ def get_analytics(
         top_categories=top_categories,
         category_type_distribution=category_type_distribution,
         top_counterparties=top_counterparties,
+        regional_distribution=regional_distribution,
+        source_distribution=source_distribution,
         processing_funnel=processing_funnel,
         ai_performance=ai_performance,
-        low_confidence_items=low_confidence_items
+        low_confidence_items=low_confidence_items,
+        activity_heatmap=activity_heatmap,
+        status_timeline=status_timeline,
+        confidence_scatter=confidence_scatter,
+        regular_payments=regular_payments_summary,
+        exhibitions=exhibitions
     )
 
 

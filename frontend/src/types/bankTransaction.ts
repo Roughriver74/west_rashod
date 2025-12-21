@@ -362,7 +362,7 @@ export interface ConfidenceScatterPoint {
   amount: number
   category_confidence?: number
   status: string
-  transaction_type: BankTransactionType
+  transaction_type: BankTransactionType | 'DEBIT' | 'CREDIT'
   is_regular_payment: boolean
 }
 

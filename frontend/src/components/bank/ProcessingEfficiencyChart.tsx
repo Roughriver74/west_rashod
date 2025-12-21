@@ -155,9 +155,10 @@ const ProcessingEfficiencyChart: React.FC<Props> = ({
           <ResponsiveContainer width="100%" height={400}>
             <FunnelChart>
               <Tooltip
-                formatter={(value: number, name: string, props: any) => {
+                formatter={(value: number | undefined, name: string | undefined, props: any) => {
+                  if (value === undefined) return ['', name]
                   return [
-                    `${value.toLocaleString('ru-RU')} транзакций (${props.payload.percent.toFixed(1)}%)`,
+                    `${value.toLocaleString('ru-RU')} транзакций (${(props.payload.percent ?? 0).toFixed(1)}%)`,
                     name
                   ]
                 }}
@@ -206,7 +207,7 @@ const ProcessingEfficiencyChart: React.FC<Props> = ({
                 cx="50%"
                 cy="50%"
                 labelLine={true}
-                label={({ name, percent }) => `${name}: ${percent.toFixed(1)}%`}
+                label={({ name, percent }) => `${name}: ${(percent ?? 0).toFixed(1)}%`}
                 outerRadius={120}
                 fill="#8884d8"
                 dataKey="value"
@@ -216,7 +217,7 @@ const ProcessingEfficiencyChart: React.FC<Props> = ({
                 ))}
               </Pie>
               <Tooltip
-                formatter={(value: number) => `${value.toLocaleString('ru-RU')} транзакций`}
+                formatter={(value: number | undefined) => value !== undefined ? `${value.toLocaleString('ru-RU')} транзакций` : ''}
               />
             </PieChart>
           </ResponsiveContainer>

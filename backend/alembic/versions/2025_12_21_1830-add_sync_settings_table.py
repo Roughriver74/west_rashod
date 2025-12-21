@@ -1,7 +1,7 @@
 """add_sync_settings_table
 
 Revision ID: add_sync_settings
-Revises: 2862e826ad6a
+Revises: 6dda2710c840
 Create Date: 2025-12-21 18:30:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'add_sync_settings'
-down_revision: Union[str, None] = '2862e826ad6a'
+down_revision: Union[str, None] = '6dda2710c840'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

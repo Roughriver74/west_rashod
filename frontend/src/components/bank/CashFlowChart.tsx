@@ -73,7 +73,7 @@ const CashFlowChart: React.FC<Props> = ({ data, loading, title = 'Помесяч
             tickFormatter={formatCurrency}
           />
           <Tooltip
-            formatter={(value: number) => formatCurrency(value)}
+            formatter={(value: number | undefined) => value !== undefined ? formatCurrency(value) : ''}
             contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.95)' }}
           />
           <Legend

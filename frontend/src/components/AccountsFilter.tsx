@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Card, Collapse, Badge, Typography, Space, Row, Col, Tag } from 'antd'
-import { BankOutlined, WarningOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { BankOutlined, WarningOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { getAccountGrouping, type AccountGrouping } from '../api/bankTransactions'
 
@@ -13,7 +13,7 @@ interface AccountsFilterProps {
   transactionType?: string
   status?: string
   selectedAccount?: string
-  onAccountSelect: (accountNumber: string) => void
+  onAccountSelect: (accountNumber: string | undefined) => void
 }
 
 const formatAmount = (amount: number) => {
@@ -53,7 +53,7 @@ export default function AccountsFilter({
 
   const handleAccountClick = (accountNumber: string) => {
     if (selectedAccount === accountNumber) {
-      onAccountSelect('')
+      onAccountSelect(undefined)
     } else {
       onAccountSelect(accountNumber)
     }
