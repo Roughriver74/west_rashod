@@ -13,6 +13,7 @@ import {
   Descriptions,
   Tag,
   Divider,
+  Switch,
 } from 'antd'
 import {
   SyncOutlined,
@@ -22,8 +23,12 @@ import {
   BankOutlined,
   TeamOutlined,
   TagsOutlined,
+  ClockCircleOutlined,
+  SettingOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import dayjs from 'dayjs'
 import {
   testConnection,
@@ -33,9 +38,49 @@ import {
   Sync1CResult,
   getResultStats,
 } from '../api/sync1c'
+import syncSettingsApi, { SyncSettings, SyncSettingsUpdate } from '../api/syncSettings'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
+
+/**
+ * Calculate the next scheduled sync time based on sync settings.
+ * Returns a dayjs object representing the next sync time, or null if not applicable.
+ */
+function calculateNextSyncTime(settings: SyncSettings | undefined): dayjs.Dayjs | null {
+  if (!settings || !settings.auto_sync_enabled) {
+    return null
+  }
+
+  // Interval-based sync: next sync = last_sync_completed_at + sync_interval_hours
+  if (settings.sync_interval_hours !== null && settings.sync_interval_hours > 0) {
+    if (settings.last_sync_completed_at) {
+      const lastSync = dayjs(settings.last_sync_completed_at)
+      return lastSync.add(settings.sync_interval_hours, 'hour')
+    }
+    // If no previous sync, next sync is now (will run on next scheduler tick)
+    return dayjs()
+  }
+
+  // Scheduled time sync: next sync at sync_time_hour:sync_time_minute
+  if (settings.sync_time_hour !== null && settings.sync_time_minute !== null) {
+    const now = dayjs()
+    let nextSync = now
+      .hour(settings.sync_time_hour)
+      .minute(settings.sync_time_minute)
+      .second(0)
+      .millisecond(0)
+
+    // If the scheduled time has already passed today, schedule for tomorrow
+    if (nextSync.isBefore(now)) {
+      nextSync = nextSync.add(1, 'day')
+    }
+
+    return nextSync
+  }
+
+  return null
+}
 
 export default function Sync1CPage() {
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>([
@@ -52,6 +97,30 @@ export default function Sync1CPage() {
     organizations?: Sync1CResult
     categories?: Sync1CResult
   }>({})
+
+  // Fetch sync settings
+  const {
+    data: syncSettings,
+    isLoading: isLoadingSettings,
+    isError: isSettingsError,
+    error: settingsError,
+    refetch: refetchSettings,
+  } = useQuery({
+    queryKey: ['syncSettings'],
+    queryFn: syncSettingsApi.getSettings,
+  })
+
+  // Update sync settings mutation (for toggle)
+  const updateSettingsMutation = useMutation({
+    mutationFn: (data: SyncSettingsUpdate) => syncSettingsApi.updateSettings(data),
+    onSuccess: () => {
+      refetchSettings()
+      message.success('Настройки автосинхронизации обновлены')
+    },
+    onError: () => {
+      message.error('Ошибка обновления настроек')
+    },
+  })
 
   // Test connection mutation
   const testConnectionMutation = useMutation({
@@ -77,6 +146,22 @@ export default function Sync1CPage() {
     if (typeof detail === 'string') return detail
     if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg
     return fallback
+  }
+
+  // Helper to display sync status with colored tags
+  const getStatusTag = (status: string | null) => {
+    if (!status) return null
+
+    switch (status) {
+      case 'SUCCESS':
+        return <Tag icon={<CheckCircleOutlined />} color="success">Успешно</Tag>
+      case 'FAILED':
+        return <Tag icon={<CloseCircleOutlined />} color="error">Ошибка</Tag>
+      case 'IN_PROGRESS':
+        return <Tag icon={<LoadingOutlined />} color="processing">Выполняется</Tag>
+      default:
+        return <Tag>{status}</Tag>
+    }
   }
 
   // Sync transactions mutation
@@ -221,6 +306,132 @@ export default function Sync1CPage() {
             }
             description={connectionStatus.message}
             showIcon
+          />
+        )}
+      </Card>
+
+      {/* Auto-Sync Status Card */}
+      <Card
+        style={{ marginBottom: 16 }}
+        title={
+          <Space>
+            <ClockCircleOutlined />
+            <span>Автоматическая синхронизация</span>
+          </Space>
+        }
+        extra={
+          <Link to="/sync-settings">
+            <Button icon={<SettingOutlined />}>
+              Настройки
+            </Button>
+          </Link>
+        }
+      >
+        {isLoadingSettings ? (
+          <div style={{ textAlign: 'center', padding: 24 }}>
+            <Spin />
+            <div style={{ marginTop: 8 }}>
+              <Text type="secondary">Загрузка настроек...</Text>
+            </div>
+          </div>
+        ) : isSettingsError ? (
+          <Alert
+            type="error"
+            message="Ошибка загрузки настроек"
+            description={
+              <Space direction="vertical">
+                <Text>
+                  {(settingsError as Error & { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+                   (settingsError as Error)?.message ||
+                   'Не удалось загрузить настройки автосинхронизации'}
+                </Text>
+                <Button onClick={() => refetchSettings()} icon={<SyncOutlined />}>
+                  Повторить
+                </Button>
+              </Space>
+            }
+          />
+        ) : syncSettings ? (
+          <Row gutter={[24, 16]} align="middle">
+            <Col xs={24} sm={12} md={6}>
+              <Space direction="vertical" size={0}>
+                <Text type="secondary">Статус</Text>
+                <Space>
+                  <Switch
+                    checked={syncSettings.auto_sync_enabled}
+                    loading={updateSettingsMutation.isPending}
+                    onChange={(checked) =>
+                      updateSettingsMutation.mutate({ auto_sync_enabled: checked })
+                    }
+                  />
+                  <Text strong>
+                    {syncSettings.auto_sync_enabled ? 'Включена' : 'Выключена'}
+                  </Text>
+                </Space>
+              </Space>
+            </Col>
+
+            <Col xs={24} sm={12} md={6}>
+              <Space direction="vertical" size={0}>
+                <Text type="secondary">Расписание</Text>
+                <Text>
+                  {syncSettings.sync_interval_hours
+                    ? `Каждые ${syncSettings.sync_interval_hours} ч.`
+                    : syncSettings.sync_time_hour !== null && syncSettings.sync_time_minute !== null
+                    ? `Ежедневно в ${String(syncSettings.sync_time_hour).padStart(2, '0')}:${String(syncSettings.sync_time_minute).padStart(2, '0')}`
+                    : 'Не настроено'}
+                </Text>
+              </Space>
+            </Col>
+
+            <Col xs={24} sm={12} md={6}>
+              <Space direction="vertical" size={0}>
+                <Text type="secondary">Последняя синхронизация</Text>
+                <Space>
+                  {getStatusTag(syncSettings.last_sync_status)}
+                  {syncSettings.last_sync_completed_at && (
+                    <Text type="secondary">
+                      {dayjs(syncSettings.last_sync_completed_at).format('DD.MM.YYYY HH:mm')}
+                    </Text>
+                  )}
+                  {!syncSettings.last_sync_status && !syncSettings.last_sync_completed_at && (
+                    <Text type="secondary">Ещё не выполнялась</Text>
+                  )}
+                </Space>
+              </Space>
+            </Col>
+
+            <Col xs={24} sm={12} md={6}>
+              <Space direction="vertical" size={0}>
+                <Text type="secondary">Следующая синхронизация</Text>
+                {(() => {
+                  const nextSync = calculateNextSyncTime(syncSettings)
+                  if (nextSync) {
+                    return <Text>{nextSync.format('DD.MM.YYYY HH:mm')}</Text>
+                  }
+                  return (
+                    <Text type="secondary">
+                      {syncSettings.auto_sync_enabled ? 'Скоро' : '—'}
+                    </Text>
+                  )
+                })()}
+              </Space>
+            </Col>
+          </Row>
+        ) : (
+          <Alert
+            type="info"
+            message="Настройки не найдены"
+            description={
+              <Space>
+                <Text>Настройте автоматическую синхронизацию</Text>
+                <Link to="/sync-settings">
+                  <Button type="primary" size="small">
+                    Настроить
+                  </Button>
+                </Link>
+              </Space>
+            }
           />
         )}
       </Card>
