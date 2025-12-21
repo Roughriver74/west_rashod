@@ -23,6 +23,7 @@ import {
 } from 'antd'
 import {
   UploadOutlined,
+  DownloadOutlined,
   SearchOutlined,
   SyncOutlined,
   CheckCircleOutlined,
@@ -34,6 +35,8 @@ import {
   WalletOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons'
+import * as XLSX from 'xlsx'
+import { saveAs } from 'file-saver'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import type { ColumnsType } from 'antd/es/table'
@@ -191,6 +194,81 @@ export default function BankTransactionsPage() {
         notes: values.notes,
       })
     }
+  }
+
+  const handleExportExcel = () => {
+    const dataToExport = selectedRowKeys.length > 0
+      ? transactions.filter(t => selectedRowKeys.includes(t.id))
+      : transactions
+
+    if (dataToExport.length === 0) {
+      message.warning('Нет данных для экспорта')
+      return
+    }
+
+    const exportData = dataToExport.map(t => ({
+      'Дата': dayjs(t.transaction_date).format('DD.MM.YYYY'),
+      'Тип': t.transaction_type === 'DEBIT' ? 'Расход' : 'Приход',
+      'Сумма': Number(t.amount),
+      'Контрагент': t.counterparty_name || '',
+      'ИНН': t.counterparty_inn || '',
+      'КПП': t.counterparty_kpp || '',
+      'Банк контрагента': t.counterparty_bank || '',
+      'БИК': t.counterparty_bik || '',
+      'Счёт контрагента': t.counterparty_account || '',
+      'Назначение платежа': t.payment_purpose || '',
+      'Хозяйственная операция': t.business_operation || '',
+      'Категория': t.category_name || '',
+      'Предложенная категория': t.suggested_category_name || '',
+      'Уверенность AI (%)': t.category_confidence ? Math.round(t.category_confidence * 100) : '',
+      'Статус': statusLabels[t.status] || t.status,
+      'Организация': t.organization_name || '',
+      'Номер счёта': t.account_number || '',
+      'Номер документа': t.document_number || '',
+      'Дата документа': t.document_date ? dayjs(t.document_date).format('DD.MM.YYYY') : '',
+      'Источник': t.payment_source === 'CASH' ? 'Касса' : 'Банк',
+      'Регулярный платёж': t.is_regular_payment ? 'Да' : 'Нет',
+      'Примечание': t.notes || '',
+    }))
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData)
+
+    // Set column widths
+    const colWidths = [
+      { wch: 12 },  // Дата
+      { wch: 10 },  // Тип
+      { wch: 15 },  // Сумма
+      { wch: 40 },  // Контрагент
+      { wch: 12 },  // ИНН
+      { wch: 10 },  // КПП
+      { wch: 30 },  // Банк контрагента
+      { wch: 10 },  // БИК
+      { wch: 22 },  // Счёт контрагента
+      { wch: 60 },  // Назначение платежа
+      { wch: 25 },  // Хозяйственная операция
+      { wch: 25 },  // Категория
+      { wch: 25 },  // Предложенная категория
+      { wch: 12 },  // Уверенность AI
+      { wch: 18 },  // Статус
+      { wch: 30 },  // Организация
+      { wch: 22 },  // Номер счёта
+      { wch: 15 },  // Номер документа
+      { wch: 12 },  // Дата документа
+      { wch: 10 },  // Источник
+      { wch: 12 },  // Регулярный платёж
+      { wch: 40 },  // Примечание
+    ]
+    worksheet['!cols'] = colWidths
+
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Транзакции')
+
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+    const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+
+    const filename = `bank_transactions_${dayjs().format('YYYY-MM-DD_HH-mm')}.xlsx`
+    saveAs(data, filename)
+    message.success(`Экспортировано ${exportData.length} операций`)
   }
 
   const columns: ColumnsType<BankTransaction> = [
@@ -509,6 +587,12 @@ export default function BankTransactionsPage() {
                   Импорт Excel
                 </Button>
               </Upload>
+              <Button
+                icon={<DownloadOutlined />}
+                onClick={handleExportExcel}
+              >
+                Экспорт {selectedRowKeys.length > 0 ? `(${selectedRowKeys.length})` : 'Excel'}
+              </Button>
               <Button
                 icon={<SyncOutlined />}
                 onClick={() => {
