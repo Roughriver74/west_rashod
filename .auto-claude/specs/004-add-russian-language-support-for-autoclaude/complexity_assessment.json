@@ -1,0 +1,62 @@
+{
+  "complexity": "simple",
+  "workflow_type": "feature",
+  "confidence": 0.90,
+  "reasoning": "This task involves adding a CLAUDE.md configuration file to set Russian as the default language for responses and task descriptions. It's a single-file configuration change with no external dependencies, no infrastructure changes, and follows well-established Claude configuration patterns.",
+
+  "analysis": {
+    "scope": {
+      "estimated_files": 1,
+      "estimated_services": 0,
+      "is_cross_cutting": false,
+      "notes": "Single CLAUDE.md file at project root to configure language preferences for Claude/autoclaude interactions"
+    },
+    "integrations": {
+      "external_services": [],
+      "new_dependencies": [],
+      "research_needed": false,
+      "notes": "No external integrations required. CLAUDE.md is a standard Claude Code configuration approach."
+    },
+    "infrastructure": {
+      "docker_changes": false,
+      "database_changes": false,
+      "config_changes": true,
+      "notes": "Only project-level CLAUDE.md configuration file needs to be created. No infrastructure changes required."
+    },
+    "knowledge": {
+      "patterns_exist": true,
+      "research_required": false,
+      "unfamiliar_tech": [],
+      "notes": "CLAUDE.md is a standard way to configure Claude Code behavior. Patterns are well-documented and straightforward."
+    },
+    "risk": {
+      "level": "low",
+      "concerns": [],
+      "notes": "This is a low-risk configuration change that only affects Claude's language output. It cannot break existing functionality."
+    }
+  },
+
+  "recommended_phases": [
+    "discovery",
+    "quick_spec",
+    "validation"
+  ],
+
+  "flags": {
+    "needs_research": false,
+    "needs_self_critique": false,
+    "needs_infrastructure_setup": false
+  },
+
+  "validation_recommendations": {
+    "risk_level": "trivial",
+    "skip_validation": true,
+    "minimal_mode": true,
+    "test_types_required": [],
+    "security_scan_required": false,
+    "staging_deployment_required": false,
+    "reasoning": "This is a configuration-only change (CLAUDE.md file) with no functional code modifications. The change only affects Claude's output language and has no impact on the application logic, security, or infrastructure."
+  },
+
+  "created_at": "2025-12-21T20:30:00.000Z"
+}

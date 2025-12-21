@@ -454,30 +454,58 @@ export default function BankTransactionsPage() {
       title: 'Категория',
       dataIndex: 'category_name',
       key: 'category_name',
-      width: 170,
+      width: 200,
       render: (name, record) => {
+        const confidenceBadge = record.category_confidence ? (
+          <Tooltip title={`Уверенность AI: ${(record.category_confidence * 100).toFixed(0)}%`}>
+            <Progress
+              type="circle"
+              percent={Math.round(record.category_confidence * 100)}
+              size={20}
+              strokeColor={record.category_confidence >= 0.9 ? '#52c41a' : record.category_confidence >= 0.7 ? '#faad14' : '#ff4d4f'}
+            />
+          </Tooltip>
+        ) : null
+
         if (name) {
           return (
-            <Space>
-              <Tag color="green">{name}</Tag>
-              {record.category_confidence && (
-                <Tooltip title={`Уверенность AI: ${(record.category_confidence * 100).toFixed(0)}%`}>
-                  <Progress
-                    type="circle"
-                    percent={Math.round(record.category_confidence * 100)}
-                    size={20}
-                    strokeColor={record.category_confidence >= 0.9 ? '#52c41a' : record.category_confidence >= 0.7 ? '#faad14' : '#ff4d4f'}
-                  />
-                </Tooltip>
-              )}
+            <Space size={6} wrap align="center">
+              <Tooltip title={name}>
+                <Tag
+                  color="green"
+                  style={{
+                    maxWidth: 160,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {name}
+                  </span>
+                </Tag>
+              </Tooltip>
+              {confidenceBadge}
             </Space>
           )
         }
         if (record.suggested_category_name) {
           return (
             <Tooltip title={`Предложение AI (${((record.category_confidence || 0) * 100).toFixed(0)}%)`}>
-              <Tag color="orange" style={{ cursor: 'pointer' }} onClick={() => openCategorizeDrawer(record)}>
-                {record.suggested_category_name}?
+              <Tag
+                color="orange"
+                style={{
+                  cursor: 'pointer',
+                  maxWidth: 180,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+                onClick={() => openCategorizeDrawer(record)}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {record.suggested_category_name}
+                </span>
+                <span style={{ marginLeft: 4 }}>?</span>
               </Tag>
             </Tooltip>
           )

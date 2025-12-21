@@ -31,35 +31,46 @@
           "id": "milestone-1-1",
           "title": "Export & Reporting Ready",
           "description": "Users can export analytics data and generate reports for stakeholders",
-          "features": ["feature-1"],
+          "features": [
+            "feature-1"
+          ],
           "status": "planned"
         },
         {
           "id": "milestone-1-2",
           "title": "Document Management Live",
           "description": "Users can attach invoices and supporting documents to expense requests",
-          "features": ["feature-2"],
+          "features": [
+            "feature-2"
+          ],
           "status": "planned"
         },
         {
           "id": "milestone-1-3",
           "title": "Notifications Enabled",
           "description": "Approval workflow notifications are automated via email",
-          "features": ["feature-3"],
+          "features": [
+            "feature-3"
+          ],
           "status": "planned"
         },
         {
           "id": "milestone-1-4",
           "title": "Quality Assured",
           "description": "Comprehensive test coverage ensures production stability",
-          "features": ["feature-4", "feature-5"],
+          "features": [
+            "feature-4",
+            "feature-5"
+          ],
           "status": "planned"
         },
         {
           "id": "milestone-1-5",
           "title": "Mobile-Accessible",
           "description": "Finance teams can access the platform from mobile devices",
-          "features": ["feature-6"],
+          "features": [
+            "feature-6"
+          ],
           "status": "planned"
         }
       ]
@@ -82,28 +93,37 @@
           "id": "milestone-2-1",
           "title": "Full Audit Compliance",
           "description": "All actions are logged with complete audit trail for compliance",
-          "features": ["feature-7"],
+          "features": [
+            "feature-7"
+          ],
           "status": "planned"
         },
         {
           "id": "milestone-2-2",
           "title": "Budget Control Live",
           "description": "Finance managers can plan and track budgets against actuals",
-          "features": ["feature-8"],
+          "features": [
+            "feature-8"
+          ],
           "status": "planned"
         },
         {
           "id": "milestone-2-3",
           "title": "Intelligent Categorization v2",
           "description": "Smart category suggestions with confidence scoring",
-          "features": ["feature-9", "feature-10"],
+          "features": [
+            "feature-9",
+            "feature-10"
+          ],
           "status": "planned"
         },
         {
           "id": "milestone-2-4",
           "title": "Internationalization Ready",
           "description": "Platform supports English for international teams",
-          "features": ["feature-11"],
+          "features": [
+            "feature-11"
+          ],
           "status": "planned"
         }
       ]
@@ -126,21 +146,29 @@
           "id": "milestone-3-1",
           "title": "Custom Reporting Engine",
           "description": "Users can create and schedule custom reports",
-          "features": ["feature-12"],
+          "features": [
+            "feature-12"
+          ],
           "status": "planned"
         },
         {
           "id": "milestone-3-2",
           "title": "Advanced Analytics Dashboard",
           "description": "Interactive analytics with drill-down and comparisons",
-          "features": ["feature-13", "feature-14"],
+          "features": [
+            "feature-13",
+            "feature-14"
+          ],
           "status": "planned"
         },
         {
           "id": "milestone-3-3",
           "title": "Team Collaboration Enhanced",
           "description": "Multi-level approvals and task assignment capabilities",
-          "features": ["feature-15", "feature-16"],
+          "features": [
+            "feature-15",
+            "feature-16"
+          ],
           "status": "planned"
         }
       ]
@@ -162,21 +190,28 @@
           "id": "milestone-4-1",
           "title": "AI-Powered Finance",
           "description": "Machine learning for anomaly detection and smart forecasting",
-          "features": ["feature-17", "feature-18"],
+          "features": [
+            "feature-17",
+            "feature-18"
+          ],
           "status": "planned"
         },
         {
           "id": "milestone-4-2",
           "title": "Direct Bank Integration",
           "description": "Real-time bank data without 1C intermediary for supported banks",
-          "features": ["feature-19"],
+          "features": [
+            "feature-19"
+          ],
           "status": "planned"
         },
         {
           "id": "milestone-4-3",
           "title": "Enterprise Ready",
           "description": "Multi-tenant and white-label capabilities for enterprise clients",
-          "features": ["feature-20"],
+          "features": [
+            "feature-20"
+          ],
           "status": "planned"
         }
       ]
@@ -193,7 +228,7 @@
       "impact": "high",
       "phase_id": "phase-1",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "Users can export analytics dashboard data to Excel format",
         "Users can export analytics to PDF format with charts",
@@ -204,7 +239,10 @@
         "As a Finance Manager, I want to export spending analytics to Excel so that I can share reports with executives",
         "As an Accountant, I want to export category breakdown to PDF so that I can attach it to audit documentation"
       ],
-      "competitor_insight_ids": ["pain-5-5", "pain-1-4"]
+      "competitor_insight_ids": [
+        "pain-5-5",
+        "pain-1-4"
+      ]
     },
     {
       "id": "feature-2",
@@ -216,7 +254,7 @@
       "impact": "high",
       "phase_id": "phase-1",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "Users can upload PDF, PNG, JPG, and XLSX files to expense requests",
         "Maximum file size of 10MB per file, up to 5 files per expense",
@@ -228,7 +266,9 @@
         "As a Requester, I want to attach an invoice to my expense request so that the approver has all necessary documentation",
         "As an Approver, I want to view attached documents so that I can verify the expense before approving"
       ],
-      "competitor_insight_ids": ["pain-5-2"]
+      "competitor_insight_ids": [
+        "pain-5-2"
+      ]
     },
     {
       "id": "feature-3",
@@ -240,7 +280,7 @@
       "impact": "high",
       "phase_id": "phase-1",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "Email sent to approver when expense is submitted for approval",
         "Email sent to requester when expense is approved with approval details",
@@ -253,7 +293,10 @@
         "As an Approver, I want to receive email notification when an expense needs my approval so that I can review it promptly",
         "As a Requester, I want to receive email notification when my expense is approved or rejected so that I know the status without logging in"
       ],
-      "competitor_insight_ids": ["pain-1-5", "pain-5-6"]
+      "competitor_insight_ids": [
+        "pain-1-5",
+        "pain-5-6"
+      ]
     },
     {
       "id": "feature-4",
@@ -265,7 +308,7 @@
       "impact": "medium",
       "phase_id": "phase-1",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "Unit tests for all API endpoints with >80% code coverage",
         "Integration tests for database operations",
@@ -289,7 +332,7 @@
       "impact": "medium",
       "phase_id": "phase-1",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "Unit tests for key React components with >60% coverage",
         "Integration tests for complex forms (expense creation, rule creation)",
@@ -311,7 +354,7 @@
       "impact": "medium",
       "phase_id": "phase-1",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "Expense list and detail pages are usable on mobile (320px+ width)",
         "Approval actions (approve/reject) work on mobile",
@@ -323,7 +366,9 @@
         "As a Manager, I want to approve expense requests from my phone so that I don't delay the team when traveling",
         "As an Accountant, I want to check transaction status from my phone so that I can respond to urgent questions"
       ],
-      "competitor_insight_ids": ["pain-1-1"]
+      "competitor_insight_ids": [
+        "pain-1-1"
+      ]
     },
     {
       "id": "feature-7",
@@ -335,7 +380,7 @@
       "impact": "high",
       "phase_id": "phase-2",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "All CRUD operations on expenses are logged with user, timestamp, and changes",
         "Transaction categorization changes are logged",
@@ -348,7 +393,9 @@
         "As an Auditor, I want to see the history of changes to an expense so that I can verify the approval process was followed",
         "As a Manager, I want to see who categorized a transaction so that I can follow up if needed"
       ],
-      "competitor_insight_ids": ["pain-5-2"]
+      "competitor_insight_ids": [
+        "pain-5-2"
+      ]
     },
     {
       "id": "feature-8",
@@ -359,8 +406,10 @@
       "complexity": "high",
       "impact": "high",
       "phase_id": "phase-2",
-      "dependencies": ["feature-1"],
-      "status": "idea",
+      "dependencies": [
+        "feature-1"
+      ],
+      "status": "under_review",
       "acceptance_criteria": [
         "Users can create budget entries with category, amount, and period (monthly/quarterly/annual)",
         "Analytics dashboard shows budget vs. actual spending by category",
@@ -384,7 +433,7 @@
       "impact": "high",
       "phase_id": "phase-2",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "Category suggestions show confidence percentage (0-100%)",
         "Users can see why a category was suggested (e.g., 'Based on counterparty INN match')",
@@ -396,7 +445,11 @@
         "As an Accountant, I want to see why a category was suggested so that I can verify it's correct",
         "As a Manager, I want to see the confidence level of auto-categorizations so that I know when manual review is needed"
       ],
-      "competitor_insight_ids": ["pain-1-2", "pain-2-3", "gap-2"]
+      "competitor_insight_ids": [
+        "pain-1-2",
+        "pain-2-3",
+        "gap-2"
+      ]
     },
     {
       "id": "feature-10",
@@ -408,7 +461,7 @@
       "impact": "high",
       "phase_id": "phase-2",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "When creating/editing a rule, users can preview matching uncategorized transactions",
         "Users can choose to apply the rule to all matching transactions",
@@ -420,7 +473,10 @@
         "As an Accountant, I want to apply a new rule to historical transactions so that I don't have to categorize them manually",
         "As a Manager, I want to preview which transactions will be affected before bulk applying a rule"
       ],
-      "competitor_insight_ids": ["pain-5-1", "pain-1-2"]
+      "competitor_insight_ids": [
+        "pain-5-1",
+        "pain-1-2"
+      ]
     },
     {
       "id": "feature-11",
@@ -432,7 +488,7 @@
       "impact": "medium",
       "phase_id": "phase-2",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "i18n framework (react-intl or similar) is implemented",
         "All UI strings are externalized to translation files",
@@ -455,8 +511,10 @@
       "complexity": "high",
       "impact": "high",
       "phase_id": "phase-3",
-      "dependencies": ["feature-1"],
-      "status": "idea",
+      "dependencies": [
+        "feature-1"
+      ],
+      "status": "under_review",
       "acceptance_criteria": [
         "Users can select data source (transactions, expenses, categories)",
         "Users can add filters, date ranges, and groupings",
@@ -469,7 +527,10 @@
         "As a Finance Manager, I want to create custom reports so that I can analyze data in ways specific to my business",
         "As an Accountant, I want to save report templates so that I don't recreate reports every month"
       ],
-      "competitor_insight_ids": ["pain-1-4", "pain-3-2"]
+      "competitor_insight_ids": [
+        "pain-1-4",
+        "pain-3-2"
+      ]
     },
     {
       "id": "feature-13",
@@ -481,7 +542,7 @@
       "impact": "high",
       "phase_id": "phase-3",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "Clicking on a chart segment shows filtered transaction list",
         "Breadcrumb navigation shows drill-down path",
@@ -493,7 +554,10 @@
         "As a Finance Manager, I want to click on a category in the pie chart to see the transactions so that I can investigate spending",
         "As a Manager, I want to compare this month to last month so that I can identify spending changes"
       ],
-      "competitor_insight_ids": ["pain-1-4", "gap-3"]
+      "competitor_insight_ids": [
+        "pain-1-4",
+        "gap-3"
+      ]
     },
     {
       "id": "feature-14",
@@ -504,8 +568,10 @@
       "complexity": "high",
       "impact": "medium",
       "phase_id": "phase-3",
-      "dependencies": ["feature-8"],
-      "status": "idea",
+      "dependencies": [
+        "feature-8"
+      ],
+      "status": "under_review",
       "acceptance_criteria": [
         "System projects incoming and outgoing cash based on regular patterns",
         "Forecast includes known approved but unpaid expenses",
@@ -528,8 +594,10 @@
       "complexity": "high",
       "impact": "medium",
       "phase_id": "phase-3",
-      "dependencies": ["feature-3"],
-      "status": "idea",
+      "dependencies": [
+        "feature-3"
+      ],
+      "status": "under_review",
       "acceptance_criteria": [
         "Admins can configure approval rules based on amount thresholds",
         "Approval chain can include 2-3 levels",
@@ -541,7 +609,10 @@
         "As an Admin, I want to configure approval rules so that large expenses require founder approval",
         "As a Manager, I want to delegate my approval authority when on vacation"
       ],
-      "competitor_insight_ids": ["pain-4-4", "gap-6"]
+      "competitor_insight_ids": [
+        "pain-4-4",
+        "gap-6"
+      ]
     },
     {
       "id": "feature-16",
@@ -553,7 +624,7 @@
       "impact": "medium",
       "phase_id": "phase-3",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "Users can assign tasks related to a transaction or expense",
         "Tasks have due dates and status (open/completed)",
@@ -565,7 +636,9 @@
         "As a Manager, I want to assign an accountant to verify a transaction so that work is tracked",
         "As an Accountant, I want to comment on a transaction to note my findings"
       ],
-      "competitor_insight_ids": ["pain-5-3"]
+      "competitor_insight_ids": [
+        "pain-5-3"
+      ]
     },
     {
       "id": "feature-17",
@@ -576,8 +649,11 @@
       "complexity": "high",
       "impact": "high",
       "phase_id": "phase-4",
-      "dependencies": ["feature-4", "feature-9"],
-      "status": "idea",
+      "dependencies": [
+        "feature-4",
+        "feature-9"
+      ],
+      "status": "under_review",
       "acceptance_criteria": [
         "ML model trained on organization's historical categorization data",
         "Model suggests category with confidence score",
@@ -589,7 +665,10 @@
         "As an Accountant, I want the system to learn from my corrections so that categorization improves over time",
         "As a Manager, I want ML-powered categorization to handle complex patterns that are hard to express as rules"
       ],
-      "competitor_insight_ids": ["pain-1-2", "gap-2"]
+      "competitor_insight_ids": [
+        "pain-1-2",
+        "gap-2"
+      ]
     },
     {
       "id": "feature-18",
@@ -600,8 +679,10 @@
       "complexity": "high",
       "impact": "high",
       "phase_id": "phase-4",
-      "dependencies": ["feature-17"],
-      "status": "idea",
+      "dependencies": [
+        "feature-17"
+      ],
+      "status": "under_review",
       "acceptance_criteria": [
         "System flags transactions that deviate significantly from historical patterns",
         "Duplicate payment detection based on amount, counterparty, and timing",
@@ -625,7 +706,7 @@
       "impact": "medium",
       "phase_id": "phase-4",
       "dependencies": [],
-      "status": "idea",
+      "status": "under_review",
       "acceptance_criteria": [
         "Integration with at least 2 major Russian banks",
         "OAuth-based secure bank connection",
@@ -637,7 +718,9 @@
         "As a Finance Manager, I want real-time bank transaction data so that I see payments immediately",
         "As a user without 1C, I want to connect my bank directly so that I can use the categorization features"
       ],
-      "competitor_insight_ids": ["pain-4-1"]
+      "competitor_insight_ids": [
+        "pain-4-1"
+      ]
     },
     {
       "id": "feature-20",
@@ -648,8 +731,10 @@
       "complexity": "high",
       "impact": "medium",
       "phase_id": "phase-4",
-      "dependencies": ["feature-4"],
-      "status": "idea",
+      "dependencies": [
+        "feature-4"
+      ],
+      "status": "under_review",
       "acceptance_criteria": [
         "Database schema supports tenant isolation",
         "Admin portal for tenant management",
@@ -666,7 +751,7 @@
   ],
   "metadata": {
     "created_at": "2025-12-21T13:00:00Z",
-    "updated_at": "2025-12-21T13:00:00Z",
+    "updated_at": "2025-12-21T17:23:24.696Z",
     "generated_by": "roadmap_features agent",
     "prioritization_framework": "MoSCoW",
     "competitor_analysis_used": true,
