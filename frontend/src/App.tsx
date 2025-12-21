@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage'
 import AppLayout from './components/AppLayout'
 import DashboardPage from './pages/DashboardPage'
 import BankTransactionsPage from './pages/BankTransactionsPage'
+import BankTransactionsAnalyticsPage from './pages/BankTransactionsAnalyticsPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import RegularPaymentsPage from './pages/RegularPaymentsPage'
 import ExpensesPage from './pages/ExpensesPage'
@@ -15,6 +16,7 @@ import OrganizationsPage from './pages/OrganizationsPage'
 import ContractorsPage from './pages/ContractorsPage'
 import MappingsPage from './pages/MappingsPage'
 import Sync1CPage from './pages/Sync1CPage'
+import SyncSettingsPage from './pages/SyncSettingsPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
@@ -46,6 +48,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/bank-transactions" element={<BankTransactionsPage />} />
+                <Route path="/bank-transactions-analytics" element={<BankTransactionsAnalyticsPage />} />
                 <Route path="/analytics" element={<AnalyticsPage />} />
                 <Route path="/regular-payments" element={<RegularPaymentsPage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />
@@ -55,6 +58,7 @@ function App() {
                 <Route path="/contractors" element={<ContractorsPage />} />
                 <Route path="/mappings" element={<MappingsPage />} />
                 <Route path="/sync-1c" element={<Sync1CPage />} />
+                <Route path="/sync-settings" element={<SyncSettingsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </AppLayout>

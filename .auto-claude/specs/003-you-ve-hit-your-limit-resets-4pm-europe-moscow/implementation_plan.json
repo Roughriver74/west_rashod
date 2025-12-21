@@ -80,14 +80,16 @@
             "command": "cd frontend && npm run build 2>&1 | head -20",
             "expected": "Build succeeds"
           },
-          "status": "pending",
+          "status": "completed",
           "details": {
             "status_mapping": {
-              "SUCCESS": "Tag with CheckCircleOutlined, color success, text '\u0423\u0441\u043f\u0435\u0448\u043d\u043e'",
-              "FAILED": "Tag with CloseCircleOutlined, color error, text '\u041e\u0448\u0438\u0431\u043a\u0430'",
-              "IN_PROGRESS": "Tag with LoadingOutlined, color processing, text '\u0412\u044b\u043f\u043e\u043b\u043d\u044f\u0435\u0442\u0441\u044f'"
+              "SUCCESS": "Tag with CheckCircleOutlined, color success, text 'Успешно'",
+              "FAILED": "Tag with CloseCircleOutlined, color error, text 'Ошибка'",
+              "IN_PROGRESS": "Tag with LoadingOutlined, color processing, text 'Выполняется'"
             }
-          }
+          },
+          "notes": "Added getStatusTag helper function to Sync1CPage.tsx that displays sync status with colored tags: SUCCESS (green), FAILED (red), IN_PROGRESS (processing), and default fallback. Follows the exact pattern from the spec.",
+          "updated_at": "2025-12-21T14:18:14.052425+00:00"
         },
         {
           "id": "subtask-1-4",
@@ -103,10 +105,12 @@
             "command": "cd frontend && npm run build 2>&1 | head -20",
             "expected": "Build succeeds"
           },
-          "status": "pending",
+          "status": "completed",
           "details": {
             "logic": "If sync_time_hour is set, calculate next occurrence of that time. If interval mode, add sync_interval_hours to last_sync_completed_at. Handle edge cases: no last sync, disabled auto-sync."
-          }
+          },
+          "notes": "Created calculateNextSyncTime helper function that calculates next sync time based on settings. Handles both interval-based sync (last_sync + interval hours) and scheduled time sync (specific hour:minute). Function returns dayjs object or null if auto-sync disabled. Build verification shows only pre-existing unused variable warnings - no actual TypeScript errors introduced.",
+          "updated_at": "2025-12-21T14:20:36.332397+00:00"
         },
         {
           "id": "subtask-1-5",
@@ -125,7 +129,7 @@
             "command": "cd frontend && npm run build 2>&1 | head -20",
             "expected": "Build succeeds"
           },
-          "status": "pending",
+          "status": "completed",
           "details": {
             "card_content": [
               "Row with auto-sync status (enabled/disabled) and Switch toggle",
@@ -134,7 +138,9 @@
               "Next sync indicator (calculated client-side)",
               "Button/Link to navigate to /sync-settings for full configuration"
             ]
-          }
+          },
+          "notes": "Created AutoSyncCard component in Sync1CPage.tsx with: status toggle switch, schedule display (interval/time), last sync status with timestamp, next sync calculation, settings link. Build verification passes (no Sync1CPage errors). Commit: 5bb90ab7",
+          "updated_at": "2025-12-21T14:22:39.005987+00:00"
         },
         {
           "id": "subtask-1-6",
@@ -157,11 +163,13 @@
               "No console errors"
             ]
           },
-          "status": "pending",
+          "status": "completed",
           "details": {
             "placement": "Add card between connection status card and sync controls row",
             "styling": "Match existing card styling with marginBottom: 16"
-          }
+          },
+          "notes": "Integration was already completed as part of subtask-1-5 (commit 5bb90ab7). The AutoSyncCard was created inline and positioned correctly after the Connection Status Card (line 311) in the layout. Verified: 1) Card renders at line 311 after Connection Status Card (line 265), 2) Toggle switch is wired to updateSettingsMutation, 3) Settings link uses Link to=\"/sync-settings\", 4) No TypeScript errors for Sync1CPage.tsx.",
+          "updated_at": "2025-12-21T14:24:26.948269+00:00"
         }
       ]
     },
@@ -193,7 +201,9 @@
               "Handle API errors gracefully"
             ]
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Verified and improved edge case handling: 1) Enhanced loading state with centered Spin and \"Загрузка настроек...\" text, 2) Added API error handling with error Alert showing error message and \"Повторить\" (Retry) button, 3) Verified existing handling for no settings configured (shows info Alert with link to configure), 4) Verified disabled state shows \"Выключена\" and \"—\" for next sync, 5) Verified IN_PROGRESS status shows with LoadingOutlined icon. Commit: 961ea8ee",
+          "updated_at": "2025-12-21T14:27:30.957292+00:00"
         },
         {
           "id": "subtask-2-2",
@@ -214,7 +224,9 @@
               "Sync results display correctly"
             ]
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Verified existing Sync1CPage functionality is not affected by auto-sync integration:\n\n**Connection Test (✓)**\n- testConnectionMutation present (line 126)\n- Button onClick wired correctly (lines 282-284)\n- Loading state works\n\n**Manual Sync Buttons (✓)**\n- syncTransactionsMutation (line 168) - wired at lines 467-469\n- syncOrganizationsMutation (line 189) - wired at lines 498-500\n- syncCategoriesMutation (line 202) - wired at lines 528-530\n\n**Date Range Picker (✓)**\n- RangePicker imported (line 44)\n- Component rendered with proper state (lines 454-461)\n\n**Full Sync Button (✓)**\n- handleSyncAll function (line 214)\n- Button onClick (line 556)\n- Calls all 3 sync mutations in sequence\n\n**Sync Results Display (✓)**\n- renderSyncResult function (line 231)\n- Used for all 3 sync types (lines 475, 505, 535)\n\n**Build Verification (✓)**\n- Vite dev server started on port 5178\n- Sync1CPage.tsx compiles without errors\n- All imports resolve correctly\n- No console errors for this page\n\nThe auto-sync card was added as a separate Card component between the connection status and sync controls, with no modifications to existing functionality.",
+          "updated_at": "2025-12-21T14:31:24.379751+00:00"
         }
       ]
     }
@@ -317,6 +329,91 @@
       "checks": []
     }
   },
-  "qa_signoff": null,
-  "last_updated": "2025-12-21T14:16:26.101811+00:00"
+  "qa_signoff": {
+    "status": "rejected",
+    "timestamp": "2025-12-21T17:45:00.000000+00:00",
+    "qa_session": 2,
+    "issues_found": [
+      {
+        "type": "critical",
+        "title": "Backend API endpoint missing",
+        "location": "backend/app/api/v1/sync_settings.py (does not exist)",
+        "fix_required": "Create /api/v1/sync-settings endpoint with GET and PUT methods"
+      },
+      {
+        "type": "critical",
+        "title": "Frontend route missing",
+        "location": "frontend/src/App.tsx",
+        "fix_required": "Create /sync-settings route and SyncSettingsPage, or remove settings link"
+      }
+    ],
+    "fix_request_file": "QA_FIX_REQUEST.md",
+    "tests_passed": {
+      "typescript_build": "PASS",
+      "security_review": "PASS",
+      "subtasks_completed": "8/8"
+    },
+    "verified_by": "qa_agent"
+  },
+  "last_updated": "2025-12-21T17:45:00.000000+00:00",
+  "qa_iteration_history": [
+    {
+      "iteration": 1,
+      "status": "error",
+      "timestamp": "2025-12-21T14:37:59.986674+00:00",
+      "issues": [
+        {
+          "title": "QA error",
+          "description": "QA agent did not update implementation_plan.json"
+        }
+      ]
+    },
+    {
+      "iteration": 2,
+      "status": "rejected",
+      "timestamp": "2025-12-21T17:45:00.000000+00:00",
+      "issues": [
+        {
+          "title": "Backend API missing",
+          "description": "/sync-settings endpoint does not exist"
+        },
+        {
+          "title": "Frontend route missing",
+          "description": "/sync-settings page does not exist"
+        }
+      ]
+    },
+    {
+      "iteration": 2,
+      "status": "rejected",
+      "timestamp": "2025-12-21T14:45:32.872885+00:00",
+      "issues": [
+        {
+          "type": "critical",
+          "title": "Backend API endpoint missing",
+          "location": "backend/app/api/v1/sync_settings.py (does not exist)",
+          "fix_required": "Create /api/v1/sync-settings endpoint with GET and PUT methods"
+        },
+        {
+          "type": "critical",
+          "title": "Frontend route missing",
+          "location": "frontend/src/App.tsx",
+          "fix_required": "Create /sync-settings route and SyncSettingsPage, or remove settings link"
+        }
+      ],
+      "duration_seconds": 452.89
+    }
+  ],
+  "qa_stats": {
+    "total_iterations": 3,
+    "last_iteration": 2,
+    "last_status": "rejected",
+    "issues_by_type": {
+      "unknown": 3,
+      "critical": 2
+    }
+  },
+  "status": "human_review",
+  "planStatus": "review",
+  "updated_at": "2025-12-21T14:45:33.179Z"
 }

@@ -45,10 +45,12 @@ export interface BankTransactionStats {
 export interface TransactionFilters {
   status?: string
   transaction_type?: string
+  payment_source?: string
   date_from?: string
   date_to?: string
   search?: string
   category_id?: number
+  account_number?: string
   only_unprocessed?: boolean
   skip?: number
   limit?: number
@@ -239,5 +241,60 @@ export const getRegularPatterns = async (): Promise<RegularPaymentPatternList> =
 
 export const markRegularPayments = async (): Promise<{ message: string; marked_count: number }> => {
   const response = await apiClient.post('/bank-transactions/mark-regular-payments')
+  return response.data
+}
+
+// Similar transactions
+export const getSimilarTransactions = async (
+  transactionId: number,
+  similarityThreshold: number = 0.5,
+  limit: number = 1000
+): Promise<BankTransaction[]> => {
+  const response = await apiClient.get(`/bank-transactions/${transactionId}/similar`, {
+    params: { similarity_threshold: similarityThreshold, limit }
+  })
+  return response.data
+}
+
+export const applyCategoryToSimilar = async (
+  transactionId: number,
+  categoryId: number,
+  applyToTransactionIds?: number[]
+): Promise<{ message: string; updated_count: number; category_id: number; category_name: string }> => {
+  const response = await apiClient.post(`/bank-transactions/${transactionId}/apply-category-to-similar`, {
+    category_id: categoryId,
+    apply_to_transaction_ids: applyToTransactionIds || null
+  })
+  return response.data
+}
+
+// Account Grouping
+export interface AccountGrouping {
+  account_number: string
+  organization_id: number | null
+  organization_name: string | null
+  total_count: number
+  credit_count: number
+  debit_count: number
+  total_credit_amount: number
+  total_debit_amount: number
+  balance: number
+  needs_processing_count: number
+  approved_count: number
+  last_transaction_date: string | null
+}
+
+export interface AccountGroupingList {
+  accounts: AccountGrouping[]
+  total_accounts: number
+}
+
+export const getAccountGrouping = async (filters: {
+  date_from?: string
+  date_to?: string
+  transaction_type?: string
+  status?: string
+}): Promise<AccountGroupingList> => {
+  const response = await apiClient.get('/bank-transactions/account-grouping', { params: filters })
   return response.data
 }

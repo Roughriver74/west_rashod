@@ -1,4 +1,4 @@
-import { Layout, Menu, Typography, Avatar, Dropdown, Space } from 'antd'
+import { Layout, Menu, Typography, Avatar, Dropdown, Space, Button } from 'antd'
 import {
   BankOutlined,
   DashboardOutlined,
@@ -8,12 +8,15 @@ import {
   SettingOutlined,
   LogoutOutlined,
   UserOutlined,
-  IdcardOutlined,
-  ClockCircleOutlined,
   FileTextOutlined,
+  LineChartOutlined,
+  RobotOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { ReactNode } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
 const { Header, Sider, Content } = Layout
@@ -27,6 +30,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuth()
+  const [collapsed, setCollapsed] = useState(() => {
+    const saved = localStorage.getItem('sidebarCollapsed')
+    return saved ? JSON.parse(saved) : false
+  })
+
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', JSON.stringify(collapsed))
+  }, [collapsed])
 
   const menuItems = [
     {
@@ -40,9 +51,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
       label: 'Банковские операции',
     },
     {
-      key: '/regular-payments',
-      icon: <ClockCircleOutlined />,
-      label: 'Регулярные платежи',
+      key: '/bank-transactions-analytics',
+      icon: <LineChartOutlined />,
+      label: 'Аналитика',
     },
     {
       key: '/expenses',
@@ -60,9 +71,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
       label: 'Организации',
     },
     {
-      key: '/contractors',
-      icon: <IdcardOutlined />,
-      label: 'Контрагенты',
+      key: '/categorization-rules',
+      icon: <RobotOutlined />,
+      label: 'Правила категоризации',
     },
     {
       key: '/mappings',
@@ -73,6 +84,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
       key: '/sync-1c',
       icon: <SyncOutlined />,
       label: 'Синхронизация 1С',
+    },
+    {
+      key: '/sync-settings',
+      icon: <ClockCircleOutlined />,
+      label: 'Настройки синхронизации',
     },
   ]
 
@@ -90,11 +106,25 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider width={240} theme="dark">
+      <Sider
+        width={240}
+        theme="dark"
+        collapsible
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        trigger={null}
+      >
         <div style={{ padding: '16px', textAlign: 'center' }}>
-          <Text style={{ color: 'white', fontSize: '18px', fontWeight: 'bold' }}>
-            West Rashod
-          </Text>
+          {!collapsed && (
+            <Text style={{ color: 'white', fontSize: '18px', fontWeight: 'bold' }}>
+              West Rashod
+            </Text>
+          )}
+          {collapsed && (
+            <Text style={{ color: 'white', fontSize: '18px', fontWeight: 'bold' }}>
+              WR
+            </Text>
+          )}
         </div>
         <Menu
           theme="dark"
@@ -110,11 +140,21 @@ export default function AppLayout({ children }: AppLayoutProps) {
             background: '#fff',
             padding: '0 24px',
             display: 'flex',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
             alignItems: 'center',
             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
           }}
         >
+          <Button
+            type="text"
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed(!collapsed)}
+            style={{
+              fontSize: '16px',
+              width: 64,
+              height: 64,
+            }}
+          />
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
             <Space style={{ cursor: 'pointer' }}>
               <Avatar icon={<UserOutlined />} />

@@ -383,3 +383,27 @@ class RegularPaymentPatternList(BaseModel):
     monthly_count: int
     quarterly_count: int
     other_count: int
+
+
+# ==================== Account Grouping ====================
+
+class AccountGrouping(BaseModel):
+    """Grouping of transactions by account number."""
+    account_number: str
+    organization_id: Optional[int] = None
+    organization_name: Optional[str] = None
+    total_count: int
+    credit_count: int
+    debit_count: int
+    total_credit_amount: Decimal
+    total_debit_amount: Decimal
+    balance: Decimal
+    needs_processing_count: int
+    approved_count: int
+    last_transaction_date: Optional[date] = None
+
+
+class AccountGroupingList(BaseModel):
+    """List of account groupings."""
+    accounts: List[AccountGrouping]
+    total_accounts: int

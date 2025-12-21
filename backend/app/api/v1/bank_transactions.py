@@ -7,6 +7,7 @@ from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, and_, or_, extract
+from pydantic import BaseModel
 
 from app.db.session import get_db
 from app.db.models import (
@@ -22,7 +23,8 @@ from app.schemas.bank_transaction import (
     BankTransactionKPIs, MonthlyFlowData, DailyFlowData, CategoryBreakdown,
     CounterpartyBreakdown, ProcessingFunnelData, ProcessingFunnelStage,
     AIPerformanceData, ConfidenceBracket, LowConfidenceItem,
-    RegularPaymentPattern, RegularPaymentPatternList
+    RegularPaymentPattern, RegularPaymentPatternList,
+    AccountGrouping, AccountGroupingList
 )
 from app.utils.auth import get_current_active_user
 from app.services.transaction_classifier import TransactionClassifier
@@ -39,6 +41,8 @@ def get_bank_transactions(
     limit: int = 100,
     status: Optional[BankTransactionStatusEnum] = None,
     transaction_type: Optional[BankTransactionTypeEnum] = None,
+    payment_source: Optional[str] = None,
+    account_number: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     search: Optional[str] = None,
@@ -62,6 +66,14 @@ def get_bank_transactions(
     # Type filter
     if transaction_type:
         query = query.filter(BankTransaction.transaction_type == transaction_type)
+
+    # Payment source filter
+    if payment_source:
+        query = query.filter(BankTransaction.payment_source == payment_source)
+
+    # Account number filter
+    if account_number:
+        query = query.filter(BankTransaction.account_number == account_number)
 
     # Date range
     if date_from:
@@ -158,6 +170,102 @@ def get_stats(
         ignored=ignored,
         total_debit=total_debit,
         total_credit=total_credit
+    )
+
+
+@router.get("/account-grouping", response_model=AccountGroupingList)
+def get_account_grouping(
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    transaction_type: Optional[BankTransactionTypeEnum] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get transactions grouped by account number."""
+    # Base query
+    query = db.query(BankTransaction).options(
+        joinedload(BankTransaction.organization_rel)
+    ).filter(BankTransaction.is_active == True)
+
+    # Apply filters
+    if date_from:
+        query = query.filter(BankTransaction.transaction_date >= date_from)
+    if date_to:
+        query = query.filter(BankTransaction.transaction_date <= date_to)
+    if transaction_type:
+        query = query.filter(BankTransaction.transaction_type == transaction_type)
+
+    # Get all transactions
+    transactions = query.all()
+
+    # Group by account number
+    accounts_dict = defaultdict(lambda: {
+        'credit_count': 0,
+        'debit_count': 0,
+        'total_credit_amount': Decimal('0'),
+        'total_debit_amount': Decimal('0'),
+        'needs_processing_count': 0,
+        'approved_count': 0,
+        'organization_id': None,
+        'organization_name': None,
+        'last_transaction_date': None,
+        'total_count': 0,
+    })
+
+    for t in transactions:
+        account_key = t.account_number or 'Не указан'
+
+        accounts_dict[account_key]['total_count'] += 1
+
+        if t.transaction_type == BankTransactionTypeEnum.CREDIT:
+            accounts_dict[account_key]['credit_count'] += 1
+            accounts_dict[account_key]['total_credit_amount'] += t.amount
+        else:
+            accounts_dict[account_key]['debit_count'] += 1
+            accounts_dict[account_key]['total_debit_amount'] += t.amount
+
+        # Count by status
+        if t.status in [BankTransactionStatusEnum.NEW, BankTransactionStatusEnum.NEEDS_REVIEW]:
+            accounts_dict[account_key]['needs_processing_count'] += 1
+        elif t.status == BankTransactionStatusEnum.APPROVED:
+            accounts_dict[account_key]['approved_count'] += 1
+
+        # Set organization info
+        if t.organization_id and not accounts_dict[account_key]['organization_id']:
+            accounts_dict[account_key]['organization_id'] = t.organization_id
+            if t.organization_rel:
+                accounts_dict[account_key]['organization_name'] = t.organization_rel.name
+
+        # Track last transaction date
+        if not accounts_dict[account_key]['last_transaction_date'] or t.transaction_date > accounts_dict[account_key]['last_transaction_date']:
+            accounts_dict[account_key]['last_transaction_date'] = t.transaction_date
+
+    # Convert to list of AccountGrouping objects
+    account_groupings = []
+    for account_number, data in accounts_dict.items():
+        balance = data['total_credit_amount'] - data['total_debit_amount']
+
+        account_groupings.append(AccountGrouping(
+            account_number=account_number,
+            organization_id=data['organization_id'],
+            organization_name=data['organization_name'],
+            total_count=data['total_count'],
+            credit_count=data['credit_count'],
+            debit_count=data['debit_count'],
+            total_credit_amount=data['total_credit_amount'],
+            total_debit_amount=data['total_debit_amount'],
+            balance=balance,
+            needs_processing_count=data['needs_processing_count'],
+            approved_count=data['approved_count'],
+            last_transaction_date=data['last_transaction_date']
+        ))
+
+    # Sort by last transaction date (most recent first)
+    account_groupings.sort(key=lambda x: x.last_transaction_date or date.min, reverse=True)
+
+    return AccountGroupingList(
+        accounts=account_groupings,
+        total_accounts=len(account_groupings)
     )
 
 
@@ -1086,4 +1194,258 @@ def auto_match_transactions(
         "message": f"Auto-matched {len(matched)} transactions",
         "matched_count": len(matched),
         "matches": matched
+    }
+
+
+@router.get("/account-grouping", response_model=AccountGroupingList)
+def get_account_grouping(
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    transaction_type: Optional[BankTransactionTypeEnum] = None,
+    status: Optional[BankTransactionStatusEnum] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get transactions grouped by account number."""
+
+    # Base query
+    query = db.query(BankTransaction).filter(BankTransaction.is_active == True)
+
+    # Apply filters
+    if date_from:
+        query = query.filter(BankTransaction.transaction_date >= date_from)
+    if date_to:
+        query = query.filter(BankTransaction.transaction_date <= date_to)
+    if transaction_type:
+        query = query.filter(BankTransaction.transaction_type == transaction_type)
+    if status:
+        query = query.filter(BankTransaction.status == status)
+
+    # Group by account number
+    accounts_data = db.query(
+        BankTransaction.account_number,
+        BankTransaction.organization_id,
+        func.count(BankTransaction.id).label('total_count'),
+        func.sum(
+            func.case((BankTransaction.transaction_type == BankTransactionTypeEnum.CREDIT, 1), else_=0)
+        ).label('credit_count'),
+        func.sum(
+            func.case((BankTransaction.transaction_type == BankTransactionTypeEnum.DEBIT, 1), else_=0)
+        ).label('debit_count'),
+        func.sum(
+            func.case(
+                (BankTransaction.transaction_type == BankTransactionTypeEnum.CREDIT, BankTransaction.amount),
+                else_=0
+            )
+        ).label('total_credit_amount'),
+        func.sum(
+            func.case(
+                (BankTransaction.transaction_type == BankTransactionTypeEnum.DEBIT, BankTransaction.amount),
+                else_=0
+            )
+        ).label('total_debit_amount'),
+        func.sum(
+            func.case(
+                (and_(
+                    BankTransaction.status.in_([BankTransactionStatusEnum.NEW, BankTransactionStatusEnum.NEEDS_REVIEW]),
+                    BankTransaction.category_id == None
+                ), 1),
+                else_=0
+            )
+        ).label('needs_processing_count'),
+        func.sum(
+            func.case((BankTransaction.status == BankTransactionStatusEnum.APPROVED, 1), else_=0)
+        ).label('approved_count'),
+        func.max(BankTransaction.transaction_date).label('last_transaction_date')
+    ).filter(
+        BankTransaction.is_active == True
+    )
+
+    # Apply same filters to grouping query
+    if date_from:
+        accounts_data = accounts_data.filter(BankTransaction.transaction_date >= date_from)
+    if date_to:
+        accounts_data = accounts_data.filter(BankTransaction.transaction_date <= date_to)
+    if transaction_type:
+        accounts_data = accounts_data.filter(BankTransaction.transaction_type == transaction_type)
+    if status:
+        accounts_data = accounts_data.filter(BankTransaction.status == status)
+
+    accounts_data = accounts_data.group_by(
+        BankTransaction.account_number,
+        BankTransaction.organization_id
+    ).order_by(func.max(BankTransaction.transaction_date).desc()).all()
+
+    # Get organization names
+    org_ids = [acc.organization_id for acc in accounts_data if acc.organization_id]
+    orgs = {}
+    if org_ids:
+        org_list = db.query(Organization).filter(Organization.id.in_(org_ids)).all()
+        orgs = {org.id: org.name for org in org_list}
+
+    # Build result
+    accounts = []
+    for acc in accounts_data:
+        accounts.append(AccountGrouping(
+            account_number=acc.account_number or "",
+            organization_id=acc.organization_id,
+            organization_name=orgs.get(acc.organization_id) if acc.organization_id else None,
+            total_count=acc.total_count or 0,
+            credit_count=acc.credit_count or 0,
+            debit_count=acc.debit_count or 0,
+            total_credit_amount=acc.total_credit_amount or Decimal("0"),
+            total_debit_amount=acc.total_debit_amount or Decimal("0"),
+            balance=(acc.total_credit_amount or Decimal("0")) - (acc.total_debit_amount or Decimal("0")),
+            needs_processing_count=acc.needs_processing_count or 0,
+            approved_count=acc.approved_count or 0,
+            last_transaction_date=acc.last_transaction_date
+        ))
+
+    return AccountGroupingList(
+        accounts=accounts,
+        total_accounts=len(accounts)
+    )
+
+
+# ==================== Similar Transactions ====================
+
+@router.get("/{transaction_id}/similar", response_model=List[BankTransactionResponse])
+def get_similar_transactions(
+    transaction_id: int,
+    similarity_threshold: float = Query(0.5, description="Similarity threshold (0-1)"),
+    limit: int = Query(1000, description="Maximum number of similar transactions to return"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Find similar transactions based on counterparty, purpose, and amount."""
+    # Get the source transaction
+    source_transaction = db.query(BankTransaction).filter(
+        BankTransaction.id == transaction_id,
+        BankTransaction.is_active == True
+    ).first()
+
+    if not source_transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found"
+        )
+
+    # Build query for similar transactions
+    query = db.query(BankTransaction).options(
+        joinedload(BankTransaction.category_rel),
+        joinedload(BankTransaction.organization_rel),
+        joinedload(BankTransaction.suggested_category_rel)
+    ).filter(
+        BankTransaction.is_active == True,
+        BankTransaction.id != transaction_id,
+        BankTransaction.category_id == None  # Только не категоризированные
+    )
+
+    # Filter by similar attributes
+    conditions = []
+
+    # Same counterparty (exact match)
+    if source_transaction.counterparty_inn:
+        conditions.append(BankTransaction.counterparty_inn == source_transaction.counterparty_inn)
+    elif source_transaction.counterparty_name:
+        conditions.append(BankTransaction.counterparty_name == source_transaction.counterparty_name)
+
+    # Similar payment purpose (if counterparty doesn't match)
+    if source_transaction.payment_purpose and len(conditions) == 0:
+        # Extract keywords from payment purpose (simple approach)
+        keywords = [word for word in source_transaction.payment_purpose.split() if len(word) > 4]
+        if keywords:
+            keyword_conditions = [BankTransaction.payment_purpose.ilike(f"%{kw}%") for kw in keywords[:5]]
+            conditions.append(or_(*keyword_conditions))
+
+    # Same business operation
+    if source_transaction.business_operation:
+        conditions.append(BankTransaction.business_operation == source_transaction.business_operation)
+
+    if conditions:
+        query = query.filter(or_(*conditions))
+
+    # Same transaction type
+    query = query.filter(BankTransaction.transaction_type == source_transaction.transaction_type)
+
+    # Order by date and limit
+    similar_transactions = query.order_by(
+        BankTransaction.transaction_date.desc()
+    ).limit(limit).all()
+
+    # Format response
+    result = []
+    for t in similar_transactions:
+        t_dict = BankTransactionResponse.model_validate(t).model_dump()
+        t_dict['category_name'] = t.category_rel.name if t.category_rel else None
+        t_dict['organization_name'] = t.organization_rel.name if t.organization_rel else None
+        t_dict['suggested_category_name'] = t.suggested_category_rel.name if t.suggested_category_rel else None
+        result.append(BankTransactionResponse(**t_dict))
+
+    return result
+
+
+class ApplyCategoryToSimilarRequest(BaseModel):
+    """Request to apply category to similar transactions."""
+    category_id: int
+    apply_to_transaction_ids: Optional[List[int]] = None
+
+
+@router.post("/{transaction_id}/apply-category-to-similar")
+def apply_category_to_similar(
+    transaction_id: int,
+    request: ApplyCategoryToSimilarRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Apply category to the transaction and optionally to similar transactions."""
+    # Get the source transaction
+    source_transaction = db.query(BankTransaction).filter(
+        BankTransaction.id == transaction_id,
+        BankTransaction.is_active == True
+    ).first()
+
+    if not source_transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found"
+        )
+
+    # Verify category exists
+    category = db.query(BudgetCategory).filter(
+        BudgetCategory.id == request.category_id
+    ).first()
+
+    if not category:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Category not found"
+        )
+
+    # Apply category to source transaction
+    source_transaction.category_id = request.category_id
+    source_transaction.status = BankTransactionStatusEnum.CATEGORIZED
+    source_transaction.updated_at = datetime.utcnow()
+
+    # Apply to similar transactions if specified
+    updated_count = 1
+    if request.apply_to_transaction_ids:
+        similar_txs = db.query(BankTransaction).filter(
+            BankTransaction.id.in_(request.apply_to_transaction_ids),
+            BankTransaction.is_active == True
+        ).all()
+
+        for tx in similar_txs:
+            tx.category_id = request.category_id
+            tx.status = BankTransactionStatusEnum.CATEGORIZED
+            tx.updated_at = datetime.utcnow()
+            updated_count += 1
+
+    db.commit()
+
+    return {
+        "message": f"Категория применена к {updated_count} операциям",
+        "updated_count": updated_count,
+        "category_id": category.id,
+        "category_name": category.name
     }

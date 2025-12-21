@@ -1,4 +1,0 @@
-{
-  "task_description": "Понял! Вижу, что у вас есть две страницы аналитики:\n/analytics - простая страница с базовыми метриками\n/bank-transactions-analytics - полноценная аналитическая панель с множеством графиков и вкладок\nСтраница /bank-transactions-analytics намного мощнее и содержит гораздо больше данных. Давайте удалим /analytics из меню, так как /bank-transactions-analytics уже содержит всю эту информацию и даже больше.",
-  "workflow_type": "feature"
-}

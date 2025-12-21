@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Card,
   Table,
@@ -34,6 +34,7 @@ import {
   BankOutlined,
   WalletOutlined,
   ExclamationCircleOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { saveAs } from 'file-saver'
@@ -51,8 +52,11 @@ import {
   getTransactionStats,
   bulkDelete,
   getCategorySuggestions,
+  getSimilarTransactions,
+  applyCategoryToSimilar,
 } from '../api/bankTransactions'
 import { getCategories } from '../api/categories'
+import AccountsFilter from '../components/AccountsFilter'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
@@ -85,7 +89,17 @@ export default function BankTransactionsPage() {
   })
   const [categorizeDrawerOpen, setCategorizeDrawerOpen] = useState(false)
   const [selectedTransaction, setSelectedTransaction] = useState<BankTransaction | null>(null)
+  const [similarTransactionsDrawerOpen, setSimilarTransactionsDrawerOpen] = useState(false)
+  const [selectedSimilarIds, setSelectedSimilarIds] = useState<number[]>([])
+  const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null)
   const [form] = Form.useForm()
+
+  // Reset selected similar IDs when similar drawer opens
+  useEffect(() => {
+    if (similarTransactionsDrawerOpen) {
+      setSelectedSimilarIds([])
+    }
+  }, [similarTransactionsDrawerOpen])
 
   // Fetch transactions
   const { data: transactions = [], isLoading } = useQuery({
@@ -113,6 +127,13 @@ export default function BankTransactionsPage() {
     queryKey: ['category-suggestions', selectedTransaction?.id],
     queryFn: () => selectedTransaction ? getCategorySuggestions(selectedTransaction.id) : Promise.resolve([]),
     enabled: !!selectedTransaction,
+  })
+
+  // Similar transactions
+  const { data: similarTransactions = [], isLoading: loadingSimilar } = useQuery({
+    queryKey: ['similar-transactions', selectedTransaction?.id],
+    queryFn: () => selectedTransaction ? getSimilarTransactions(selectedTransaction.id, 0.5, 1000) : Promise.resolve([]),
+    enabled: !!selectedTransaction && similarTransactionsDrawerOpen,
   })
 
   // Import mutation
@@ -159,7 +180,9 @@ export default function BankTransactionsPage() {
     onSuccess: () => {
       message.success('Категория назначена')
       setCategorizeDrawerOpen(false)
+      setSimilarTransactionsDrawerOpen(false)
       setSelectedTransaction(null)
+      setSelectedSimilarIds([])
       form.resetFields()
       queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
       queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
@@ -177,6 +200,25 @@ export default function BankTransactionsPage() {
     },
   })
 
+  // Apply category to similar mutation
+  const applyCategoryToSimilarMutation = useMutation({
+    mutationFn: ({ transactionId, categoryId, applyToIds }: {
+      transactionId: number
+      categoryId: number
+      applyToIds?: number[]
+    }) => applyCategoryToSimilar(transactionId, categoryId, applyToIds),
+    onSuccess: (data) => {
+      message.success(data.message)
+      setSimilarTransactionsDrawerOpen(false)
+      setCategorizeDrawerOpen(false)
+      setSelectedTransaction(null)
+      setSelectedSimilarIds([])
+      form.resetFields()
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
+    },
+  })
+
   const openCategorizeDrawer = (record: BankTransaction) => {
     setSelectedTransaction(record)
     form.setFieldsValue({
@@ -188,11 +230,13 @@ export default function BankTransactionsPage() {
 
   const handleCategorize = (values: { category_id: number; notes?: string }) => {
     if (selectedTransaction) {
-      categorizeMutation.mutate({
-        id: selectedTransaction.id,
+      // Сохраняем выбранную категорию и примечание в форму
+      form.setFieldsValue({
         category_id: values.category_id,
         notes: values.notes,
       })
+      // Открываем окно с похожими операциями
+      setSimilarTransactionsDrawerOpen(true)
     }
   }
 
@@ -269,6 +313,48 @@ export default function BankTransactionsPage() {
     const filename = `bank_transactions_${dayjs().format('YYYY-MM-DD_HH-mm')}.xlsx`
     saveAs(data, filename)
     message.success(`Экспортировано ${exportData.length} операций`)
+  }
+
+  // Quick filter handlers
+  const handleQuickFilter = (filterType: string) => {
+    if (activeQuickFilter === filterType) {
+      // Сбросить фильтр
+      setActiveQuickFilter(null)
+      setFilters((prev) => ({
+        ...prev,
+        transaction_type: undefined,
+        status: undefined,
+      }))
+    } else {
+      // Применить фильтр
+      setActiveQuickFilter(filterType)
+
+      switch (filterType) {
+        case 'debit':
+          setFilters((prev) => ({
+            ...prev,
+            transaction_type: 'DEBIT',
+            status: undefined,
+          }))
+          break
+        case 'credit':
+          setFilters((prev) => ({
+            ...prev,
+            transaction_type: 'CREDIT',
+            status: undefined,
+          }))
+          break
+        case 'needs_review':
+          setFilters((prev) => ({
+            ...prev,
+            transaction_type: undefined,
+            status: 'NEEDS_REVIEW',
+          }))
+          break
+        default:
+          break
+      }
+    }
   }
 
   const columns: ColumnsType<BankTransaction> = [
@@ -432,7 +518,16 @@ export default function BankTransactionsPage() {
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card size="small">
+          <Card
+            size="small"
+            onClick={() => handleQuickFilter('debit')}
+            style={{
+              cursor: 'pointer',
+              border: activeQuickFilter === 'debit' ? '2px solid #cf1322' : undefined,
+              boxShadow: activeQuickFilter === 'debit' ? '0 0 8px rgba(207, 19, 34, 0.3)' : undefined,
+            }}
+            hoverable
+          >
             <Statistic
               title="Расход"
               value={stats?.total_debit || 0}
@@ -444,7 +539,16 @@ export default function BankTransactionsPage() {
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card size="small">
+          <Card
+            size="small"
+            onClick={() => handleQuickFilter('credit')}
+            style={{
+              cursor: 'pointer',
+              border: activeQuickFilter === 'credit' ? '2px solid #3f8600' : undefined,
+              boxShadow: activeQuickFilter === 'credit' ? '0 0 8px rgba(63, 134, 0, 0.3)' : undefined,
+            }}
+            hoverable
+          >
             <Statistic
               title="Приход"
               value={stats?.total_credit || 0}
@@ -456,7 +560,16 @@ export default function BankTransactionsPage() {
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card size="small">
+          <Card
+            size="small"
+            onClick={() => handleQuickFilter('needs_review')}
+            style={{
+              cursor: 'pointer',
+              border: activeQuickFilter === 'needs_review' ? '2px solid #faad14' : undefined,
+              boxShadow: activeQuickFilter === 'needs_review' ? '0 0 8px rgba(250, 173, 20, 0.3)' : undefined,
+            }}
+            hoverable
+          >
             <Statistic
               title="Требуют проверки"
               value={stats?.needs_review || 0}
@@ -467,8 +580,26 @@ export default function BankTransactionsPage() {
         </Col>
       </Row>
 
-      {/* Filters */}
-      <Card style={{ marginBottom: 16 }}>
+      {/* Main content with two columns */}
+      <Row gutter={16}>
+        {/* Left column - Accounts Filter */}
+        <Col xs={24} md={6} lg={4} style={{ marginBottom: 16 }}>
+          <AccountsFilter
+            dateFrom={filters.date_from}
+            dateTo={filters.date_to}
+            transactionType={filters.transaction_type}
+            status={filters.status}
+            selectedAccount={filters.account_number}
+            onAccountSelect={(accountNumber) => {
+              setFilters((prev) => ({ ...prev, account_number: accountNumber }))
+            }}
+          />
+        </Col>
+
+        {/* Right column - Filters and Table */}
+        <Col xs={24} md={18} lg={20}>
+          {/* Filters */}
+          <Card style={{ marginBottom: 16 }}>
         <Row gutter={[16, 16]} align="middle">
           <Col flex="auto">
             <Space wrap>
@@ -503,6 +634,18 @@ export default function BankTransactionsPage() {
                 options={[
                   { value: 'DEBIT', label: 'Расход' },
                   { value: 'CREDIT', label: 'Приход' },
+                ]}
+              />
+              <Select
+                placeholder="Источник"
+                style={{ width: 120 }}
+                allowClear
+                onChange={(value) =>
+                  setFilters((prev) => ({ ...prev, payment_source: value }))
+                }
+                options={[
+                  { value: 'BANK', label: 'Банк' },
+                  { value: 'CASH', label: 'Касса' },
                 ]}
               />
               <Select
@@ -624,6 +767,8 @@ export default function BankTransactionsPage() {
           size="middle"
         />
       </Card>
+        </Col>
+      </Row>
 
       {/* Categorize Drawer */}
       <Drawer
@@ -739,6 +884,200 @@ export default function BankTransactionsPage() {
                 </Space>
               </Form.Item>
             </Form>
+          </div>
+        )}
+      </Drawer>
+
+      {/* Similar Transactions Drawer */}
+      <Drawer
+        title="Похожие транзакции"
+        placement="right"
+        width={800}
+        open={similarTransactionsDrawerOpen}
+        onClose={() => {
+          setSimilarTransactionsDrawerOpen(false)
+          setSelectedSimilarIds([])
+        }}
+      >
+        {selectedTransaction && (
+          <div>
+            <Card size="small" style={{ marginBottom: 16 }}>
+              <Row gutter={[8, 8]}>
+                <Col span={12}>
+                  <Text type="secondary">Контрагент:</Text>
+                  <div>{selectedTransaction.counterparty_name || '-'}</div>
+                </Col>
+                <Col span={12}>
+                  <Text type="secondary">Назначение:</Text>
+                  <div style={{ fontSize: '12px' }}>{selectedTransaction.payment_purpose || '-'}</div>
+                </Col>
+              </Row>
+            </Card>
+
+            <div style={{ marginBottom: 16 }}>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Text type="secondary">
+                  Найдено похожих: {similarTransactions.length}
+                </Text>
+                {similarTransactions.length > 0 && (
+                  <Space>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        const allIds = similarTransactions.map(t => t.id)
+                        setSelectedSimilarIds(allIds)
+                      }}
+                    >
+                      Выбрать все ({similarTransactions.length})
+                    </Button>
+                    <Button
+                      size="small"
+                      onClick={() => setSelectedSimilarIds([])}
+                    >
+                      Снять выделение
+                    </Button>
+                    {selectedSimilarIds.length > 0 && (
+                      <Text type="secondary">
+                        Выбрано: {selectedSimilarIds.length}
+                      </Text>
+                    )}
+                  </Space>
+                )}
+              </Space>
+            </div>
+
+            {loadingSimilar ? (
+              <div style={{ textAlign: 'center', padding: 40 }}>
+                <Space>
+                  <LoadingOutlined />
+                  <Text>Поиск похожих транзакций...</Text>
+                </Space>
+              </div>
+            ) : similarTransactions.length > 0 ? (
+              <>
+                <Table
+                  rowKey="id"
+                  dataSource={similarTransactions}
+                  size="small"
+                  pagination={{ pageSize: 20 }}
+                  rowSelection={{
+                    type: 'checkbox',
+                    selectedRowKeys: selectedSimilarIds,
+                    onChange: (selectedRowKeys) => {
+                      setSelectedSimilarIds(selectedRowKeys as number[])
+                    },
+                  }}
+                  columns={[
+                    {
+                      title: 'Дата',
+                      dataIndex: 'transaction_date',
+                      width: 100,
+                      render: (date) => dayjs(date).format('DD.MM.YYYY'),
+                    },
+                    {
+                      title: 'Сумма',
+                      dataIndex: 'amount',
+                      width: 120,
+                      render: (amount, record) => (
+                        <Text strong style={{ color: record.transaction_type === 'DEBIT' ? '#cf1322' : '#3f8600' }}>
+                          {formatAmount(amount)}
+                        </Text>
+                      ),
+                    },
+                    {
+                      title: 'Назначение',
+                      dataIndex: 'payment_purpose',
+                      ellipsis: true,
+                    },
+                    {
+                      title: 'Категория',
+                      dataIndex: 'category_name',
+                      width: 150,
+                      render: (name) => name ? <Tag color="green">{name}</Tag> : '-',
+                    },
+                  ]}
+                />
+
+                <div style={{ marginTop: 16 }}>
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    <Button
+                      type="primary"
+                      block
+                      onClick={() => {
+                        const categoryId = form.getFieldValue('category_id')
+
+                        if (!categoryId) {
+                          message.warning('Сначала выберите категорию')
+                          return
+                        }
+
+                        if (selectedSimilarIds.length === 0) {
+                          message.warning('Выберите хотя бы одну похожую транзакцию')
+                          return
+                        }
+
+                        applyCategoryToSimilarMutation.mutate({
+                          transactionId: selectedTransaction.id,
+                          categoryId,
+                          applyToIds: selectedSimilarIds,
+                        })
+                      }}
+                      loading={applyCategoryToSimilarMutation.isPending}
+                    >
+                      Применить к выбранным ({selectedSimilarIds.length})
+                    </Button>
+                    <Button
+                      block
+                      onClick={() => {
+                        const categoryId = form.getFieldValue('category_id')
+                        const notes = form.getFieldValue('notes')
+
+                        if (!categoryId) {
+                          message.warning('Сначала выберите категорию')
+                          return
+                        }
+
+                        categorizeMutation.mutate({
+                          id: selectedTransaction.id,
+                          category_id: categoryId,
+                          notes: notes,
+                        })
+                      }}
+                      loading={categorizeMutation.isPending}
+                    >
+                      Применить только к этой операции
+                    </Button>
+                  </Space>
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center', padding: 40 }}>
+                <Text type="secondary">Похожие транзакции не найдены</Text>
+                <div style={{ marginTop: 16 }}>
+                  <Button
+                    type="primary"
+                    onClick={() => {
+                      const categoryId = form.getFieldValue('category_id')
+                      const notes = form.getFieldValue('notes')
+
+                      if (!categoryId) {
+                        message.warning('Сначала выберите категорию')
+                        return
+                      }
+
+                      categorizeMutation.mutate({
+                        id: selectedTransaction.id,
+                        category_id: categoryId,
+                        notes: notes,
+                      })
+                    }}
+                    loading={categorizeMutation.isPending}
+                  >
+                    Применить к этой операции
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Drawer>

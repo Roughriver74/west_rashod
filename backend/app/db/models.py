@@ -411,3 +411,34 @@ class BusinessOperationMapping(Base):
     __table_args__ = (
         Index('ix_business_op_mapping_unique', 'business_operation', 'category_id', unique=True),
     )
+
+
+class SyncSettings(Base):
+    """Settings for automatic 1C synchronization (singleton table)."""
+    __tablename__ = "sync_settings"
+
+    id = Column(Integer, primary_key=True, default=1)  # Singleton
+
+    # Scheduler settings
+    auto_sync_enabled = Column(Boolean, default=False, nullable=False)
+    sync_interval_hours = Column(Integer, default=4, nullable=False)  # Every N hours
+    sync_time_hour = Column(Integer, nullable=True)  # Specific hour (0-23) or None for interval
+    sync_time_minute = Column(Integer, default=0, nullable=False)  # Minute (0-59)
+
+    # Sync options
+    auto_classify = Column(Boolean, default=True, nullable=False)
+    sync_days_back = Column(Integer, default=30, nullable=False)  # How many days back to sync
+
+    # Last sync info
+    last_sync_started_at = Column(DateTime, nullable=True)
+    last_sync_completed_at = Column(DateTime, nullable=True)
+    last_sync_status = Column(String(50), nullable=True)  # SUCCESS, FAILED, IN_PROGRESS
+    last_sync_message = Column(Text, nullable=True)
+
+    # Metadata
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Relationships
+    updated_by_rel = relationship("User", foreign_keys=[updated_by])
