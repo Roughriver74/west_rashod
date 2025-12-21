@@ -16,24 +16,36 @@
           "service": "frontend",
           "status": "pending",
           "files_to_create": [],
-          "files_to_modify": ["frontend/src/components/AppLayout.tsx"],
+          "files_to_modify": [
+            "frontend/src/components/AppLayout.tsx"
+          ],
           "patterns_from": [],
           "verification": {
             "type": "manual",
-            "run": "npm run build && verify sidebar menu no longer shows 'Аналитика' item"
+            "run": "npm run build && verify sidebar menu no longer shows '\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430' item"
           }
         }
       ]
     }
   ],
   "qa_signoff": {
-    "status": "pending",
-    "issues": "",
-    "tests_passed": ""
+    "status": "approved",
+    "qa_session": 0,
+    "issues_found": [
+      {
+        "description": "None"
+      }
+    ],
+    "tests_passed": {},
+    "timestamp": "2025-12-21T14:03:59.955188+00:00",
+    "ready_for_qa_revalidation": false
   },
   "metadata": {
     "created_at": "2025-12-21T12:21:51.160Z",
     "complexity": "simple",
     "estimated_sessions": 1
-  }
+  },
+  "status": "human_review",
+  "planStatus": "review",
+  "last_updated": "2025-12-21T14:03:59.955200+00:00"
 }
