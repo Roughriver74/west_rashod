@@ -9,7 +9,6 @@ import {
   LogoutOutlined,
   UserOutlined,
   IdcardOutlined,
-  LineChartOutlined,
   ClockCircleOutlined,
   FileTextOutlined,
 } from '@ant-design/icons'
@@ -39,11 +38,6 @@ export default function AppLayout({ children }: AppLayoutProps) {
       key: '/bank-transactions',
       icon: <BankOutlined />,
       label: 'Банковские операции',
-    },
-    {
-      key: '/analytics',
-      icon: <LineChartOutlined />,
-      label: 'Аналитика',
     },
     {
       key: '/regular-payments',
