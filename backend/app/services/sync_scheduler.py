@@ -44,7 +44,7 @@ class SyncScheduler:
 
     def _should_run_sync(self, settings: SyncSettings) -> bool:
         """Check if sync should be run based on settings."""
-        if not settings.auto_sync_enabled:
+        if not settings or not settings.auto_sync_enabled:
             return False
 
         now = datetime.utcnow()
@@ -82,12 +82,19 @@ class SyncScheduler:
             logger.info(f"Starting scheduled 1C sync (days_back={settings.sync_days_back})")
 
             # Update sync settings
-            db_settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
-            if db_settings:
-                db_settings.last_sync_started_at = datetime.utcnow()
-                db_settings.last_sync_status = "IN_PROGRESS"
-                db_settings.last_sync_message = "Автоматическая синхронизация запущена"
-                db.commit()
+            try:
+                db_settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
+                if db_settings:
+                    db_settings.last_sync_started_at = datetime.utcnow()
+                    db_settings.last_sync_status = "IN_PROGRESS"
+                    db_settings.last_sync_message = "Автоматическая синхронизация запущена"
+                    db.commit()
+                else:
+                    logger.warning("SyncSettings record not found, skipping update")
+            except Exception as e:
+                logger.error(f"Failed to update SyncSettings: {e}")
+                db.rollback()
+                # Continue with sync even if settings update fails
 
             # Calculate date range
             date_to = date.today()
