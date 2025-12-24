@@ -183,6 +183,47 @@ class SyncScheduler:
         if elapsed >= max_wait_time:
             logger.warning(f"Task {task_id} monitoring timed out")
 
+    def _should_run_expense_sync(self, settings: SyncSettings) -> bool:
+        """Check if expense sync should be run based on settings."""
+        if not settings or not settings.auto_sync_expenses_enabled:
+            return False
+
+        now = datetime.utcnow()
+
+        # Interval-based sync for expenses
+        if settings.last_sync_started_at:
+            hours_since_last_sync = (now - settings.last_sync_started_at).total_seconds() / 3600
+            return hours_since_last_sync >= settings.sync_expenses_interval_hours
+
+        # No previous sync, run now
+        return True
+
+    async def _run_expense_sync(self, settings: SyncSettings) -> None:
+        """Run the expense sync task."""
+        from app.services.background_tasks import task_manager, TaskStatus
+
+        db = self._get_db()
+        try:
+            logger.info(f"Starting scheduled expense sync (days_back={settings.sync_expenses_days_back})")
+
+            # Calculate date range
+            date_to = date.today()
+            date_from = date_to - timedelta(days=settings.sync_expenses_days_back)
+
+            # Start async expense sync
+            task_id = AsyncSyncService.start_expenses_sync(
+                date_from=date_from,
+                date_to=date_to,
+                user_id=None  # System-initiated
+            )
+
+            logger.info(f"Scheduled expense sync started with task_id: {task_id}")
+
+        except Exception as e:
+            logger.exception("Failed to start scheduled expense sync")
+        finally:
+            db.close()
+
     async def _scheduler_loop(self) -> None:
         """Main scheduler loop."""
         logger.info("Sync scheduler started")
@@ -191,8 +232,13 @@ class SyncScheduler:
             try:
                 settings = self._get_settings()
 
+                # Check and run bank transaction sync
                 if settings and self._should_run_sync(settings):
                     await self._run_sync(settings)
+
+                # Check and run expense sync
+                if settings and self._should_run_expense_sync(settings):
+                    await self._run_expense_sync(settings)
 
                 # Wait before next check
                 await asyncio.sleep(self._check_interval)

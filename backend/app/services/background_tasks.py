@@ -4,7 +4,7 @@ import json
 import uuid
 import logging
 from typing import Dict, Optional, Any, Callable, Awaitable, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from dataclasses import dataclass, field
 
@@ -34,13 +34,22 @@ class TaskInfo:
     message: str = ""
     result: Optional[Any] = None
     error: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
+        def format_datetime(dt: Optional[datetime]) -> Optional[str]:
+            """Format datetime to ISO string with timezone info."""
+            if not dt:
+                return None
+            # Ensure datetime is timezone-aware (UTC)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.isoformat()
+
         return {
             "task_id": self.task_id,
             "task_type": self.task_type,
@@ -51,9 +60,9 @@ class TaskInfo:
             "message": self.message,
             "result": self.result,
             "error": self.error,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "created_at": format_datetime(self.created_at),
+            "started_at": format_datetime(self.started_at),
+            "completed_at": format_datetime(self.completed_at),
             "metadata": self.metadata,
         }
 
@@ -315,7 +324,7 @@ class BackgroundTaskManager:
         task = self._cache.get(task_id) or self._load_from_db(task_id)
         if task:
             task.status = TaskStatus.RUNNING
-            task.started_at = datetime.utcnow()
+            task.started_at = datetime.now(timezone.utc)
             self._cache[task_id] = task
             self._save_to_db(task)  # Always save status changes
             logger.info(f"Task {task_id} started")
@@ -326,7 +335,7 @@ class BackgroundTaskManager:
         task = self._cache.get(task_id) or self._load_from_db(task_id)
         if task:
             task.status = TaskStatus.COMPLETED
-            task.completed_at = datetime.utcnow()
+            task.completed_at = datetime.now(timezone.utc)
             task.progress = 100
             task.result = result
             self._cache[task_id] = task
@@ -342,7 +351,7 @@ class BackgroundTaskManager:
         task = self._cache.get(task_id) or self._load_from_db(task_id)
         if task:
             task.status = TaskStatus.FAILED
-            task.completed_at = datetime.utcnow()
+            task.completed_at = datetime.now(timezone.utc)
             task.error = error
             self._cache[task_id] = task
             self._save_to_db(task)  # Always save final state
@@ -376,7 +385,7 @@ class BackgroundTaskManager:
 
         # Обновляем статус задачи в любом случае
         task.status = TaskStatus.CANCELLED
-        task.completed_at = datetime.utcnow()
+        task.completed_at = datetime.now(timezone.utc)
         task.message = "Задача отменена пользователем"
         task.progress = 100  # Помечаем как завершённую
         self._cache[task_id] = task

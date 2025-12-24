@@ -3,7 +3,7 @@ version: '3.8'
 services:
   db:
     image: postgres:15-alpine
-    container_name: west_rashod_db
+    container_name: west_potok_db
     restart: unless-stopped
     environment:
       POSTGRES_USER: rashod_user
@@ -22,7 +22,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: west_rashod_redis
+    container_name: west_potok_redis
     restart: unless-stopped
     ports:
       - "6382:6379"
@@ -34,12 +34,12 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: west_rashod_backend
+    container_name: west_potok_backend
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://rashod_user:rashod_pass@db:5432/west_rashod_db
       DEBUG: "True"
-      SECRET_KEY: "west-rashod-secret-key-change-in-production-min-32-chars"
+      SECRET_KEY: "west-potok-secret-key-change-in-production-min-32-chars"
       CORS_ORIGINS: '["http://localhost:5178","http://localhost:3000"]'
       USE_REDIS: "true"
       REDIS_HOST: redis
@@ -57,7 +57,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: west_rashod_frontend
+    container_name: west_potok_frontend
     restart: unless-stopped
     environment:
       VITE_API_URL: http://localhost:8005

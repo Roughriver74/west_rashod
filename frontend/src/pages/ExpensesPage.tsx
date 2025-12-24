@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Card,
   Table,
@@ -47,14 +47,19 @@ import {
   deleteExpense,
   submitExpenseForApproval,
   approveExpense,
+  exportExpenses,
+  bulkDeleteExpenses,
   Expense,
   ExpenseFilters,
   ExpenseCreate,
   ExpenseStatus,
   ExpensePriority,
+  ExpenseList,
 } from '../api/expenses'
 import { getCategories } from '../api/categories'
 import { getOrganizations } from '../api/organizations'
+import { syncExpenses } from '../api/sync1c'
+import { getTaskStatus, TaskInfo } from '../api/tasks'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
@@ -108,7 +113,7 @@ export default function ExpensesPage() {
   const [form] = Form.useForm()
 
   // State
-  const [filters, setFilters] = useState<ExpenseFilters>({ limit: 100 })
+  const [filters, setFilters] = useState<ExpenseFilters>({ skip: 0, limit: 50 })
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null)
@@ -116,12 +121,20 @@ export default function ExpensesPage() {
   const [rejectModalOpen, setRejectModalOpen] = useState(false)
   const [rejectingExpenseId, setRejectingExpenseId] = useState<number | null>(null)
   const [rejectionReason, setRejectionReason] = useState('')
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
+  const [syncTaskId, setSyncTaskId] = useState<string | null>(null)
+  const [syncProgress, setSyncProgress] = useState<TaskInfo | null>(null)
 
   // Queries
-  const { data: expenses = [], isLoading } = useQuery({
+  const { data: expenseList, isLoading } = useQuery({
     queryKey: ['expenses', filters],
     queryFn: () => getExpenses(filters),
   })
+
+  const expenses = expenseList?.items || []
+  const totalExpenses = expenseList?.total || 0
+  const currentPage = expenseList?.page || 1
+  const pageSize = expenseList?.page_size || 50
 
   const { data: stats } = useQuery({
     queryKey: ['expense-stats'],
@@ -137,6 +150,17 @@ export default function ExpensesPage() {
     queryKey: ['organizations'],
     queryFn: () => getOrganizations({ is_active: true }),
   })
+
+  // Получить уникальные подразделения из всех загруженных заявок
+  const uniqueSubdivisions = useMemo(() => {
+    const subdivisions = new Set<string>()
+    expenses.forEach(exp => {
+      if (exp.subdivision) {
+        subdivisions.add(exp.subdivision)
+      }
+    })
+    return Array.from(subdivisions).sort()
+  }, [expenses])
 
   // Mutations
   const createMutation = useMutation({
@@ -172,6 +196,16 @@ export default function ExpensesPage() {
       queryClient.invalidateQueries({ queryKey: ['expense-stats'] })
     },
     onError: () => message.error('Ошибка при удалении заявки'),
+  })
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (filters: ExpenseFilters) => bulkDeleteExpenses(filters),
+    onSuccess: (data) => {
+      message.success(`Удалено заявок: ${data.count}`)
+      queryClient.invalidateQueries({ queryKey: ['expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['expense-stats'] })
+    },
+    onError: () => message.error('Ошибка при массовом удалении'),
   })
 
   const submitMutation = useMutation({
@@ -245,12 +279,115 @@ export default function ExpensesPage() {
     }
   }
 
+  const handleSync = async (dateFrom: string, dateTo: string) => {
+    try {
+      const result = await syncExpenses({ date_from: dateFrom, date_to: dateTo })
+      setSyncTaskId(result.task_id)
+      message.success('Синхронизация запущена')
+
+      // Poll task status
+      const pollInterval = setInterval(async () => {
+        try {
+          const task = await getTaskStatus(result.task_id)
+          setSyncProgress(task)
+
+          if (task.status === 'completed') {
+            clearInterval(pollInterval)
+            message.success('Синхронизация завершена')
+            queryClient.invalidateQueries({ queryKey: ['expenses'] })
+            queryClient.invalidateQueries({ queryKey: ['expense-stats'] })
+            setTimeout(() => {
+              setIsSyncModalOpen(false)
+              setSyncTaskId(null)
+              setSyncProgress(null)
+            }, 2000)
+          } else if (task.status === 'failed') {
+            clearInterval(pollInterval)
+            message.error('Ошибка синхронизации')
+          }
+        } catch (err) {
+          clearInterval(pollInterval)
+          message.error('Ошибка получения статуса задачи')
+        }
+      }, 1000)
+    } catch (error) {
+      message.error('Ошибка запуска синхронизации')
+    }
+  }
+
+  const handleExport = async () => {
+    try {
+      const blob = await exportExpenses(filters)
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `expenses_${dayjs().format('YYYY-MM-DD')}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      message.success('Экспорт выполнен')
+    } catch (error) {
+      message.error('Ошибка экспорта')
+    }
+  }
+
+  const handleBulkDelete = () => {
+    const filterDesc = []
+    if (filters.status) filterDesc.push(`статус: ${statusLabels[filters.status as ExpenseStatus]}`)
+    if (filters.date_from && filters.date_to) filterDesc.push(`период: ${filters.date_from} - ${filters.date_to}`)
+    if (filters.search) filterDesc.push(`поиск: "${filters.search}"`)
+    if (filters.category_id) filterDesc.push('категория выбрана')
+    if (filters.organization_id) filterDesc.push('организация выбрана')
+    if (filters.contractor_id) filterDesc.push('контрагент выбран')
+    if (filters.subdivision) filterDesc.push(`подразделение: ${filters.subdivision}`)
+
+    const description = filterDesc.length > 0
+      ? `Фильтры: ${filterDesc.join(', ')}`
+      : 'Все заявки (без фильтров)'
+
+    Modal.confirm({
+      title: 'Массовое удаление заявок',
+      icon: <DeleteOutlined style={{ color: '#ff4d4f' }} />,
+      content: (
+        <div>
+          <p><strong>ВНИМАНИЕ!</strong> Эта операция необратима!</p>
+          <p>{description}</p>
+          <p>Вы уверены, что хотите удалить все заявки, соответствующие выбранным фильтрам?</p>
+        </div>
+      ),
+      okText: 'Да, удалить',
+      okType: 'danger',
+      cancelText: 'Отмена',
+      onOk: () => {
+        // Отправить только поддерживаемые backend параметры
+        const deleteFilters: Partial<ExpenseFilters> = {}
+        if (filters.status) deleteFilters.status = filters.status
+        if (filters.date_from) deleteFilters.date_from = filters.date_from
+        if (filters.date_to) deleteFilters.date_to = filters.date_to
+        if (filters.category_id) deleteFilters.category_id = filters.category_id
+        if (filters.organization_id) deleteFilters.organization_id = filters.organization_id
+        if (filters.contractor_id) deleteFilters.contractor_id = filters.contractor_id
+        if (filters.subdivision) deleteFilters.subdivision = filters.subdivision
+        if (filters.search) deleteFilters.search = filters.search
+
+        bulkDeleteMutation.mutate(deleteFilters)
+      },
+    })
+  }
+
+  const handlePageChange = (page: number, pageSize?: number) => {
+    const newSkip = (page - 1) * (pageSize || filters.limit || 50)
+    setFilters({ ...filters, skip: newSkip, limit: pageSize || filters.limit })
+  }
+
   const columns: ColumnsType<Expense> = [
     {
       title: 'Номер',
       dataIndex: 'number',
       key: 'number',
-      width: 130,
+      width: 120,
+      fixed: 'left',
       render: (value, record) => (
         <Button type="link" onClick={() => { setSelectedExpense(record); setIsDrawerOpen(true) }}>
           {value}
@@ -266,18 +403,32 @@ export default function ExpensesPage() {
       sorter: (a, b) => dayjs(a.request_date).unix() - dayjs(b.request_date).unix(),
     },
     {
-      title: 'Название',
-      dataIndex: 'title',
-      key: 'title',
+      title: 'Название / Описание',
+      key: 'title_description',
+      width: 280,
       ellipsis: true,
-      render: (value, record) => (
-        <Space direction="vertical" size={0}>
-          <Text strong ellipsis style={{ maxWidth: 300 }}>{value}</Text>
-          {record.contractor_name && (
-            <Text type="secondary" style={{ fontSize: 12 }}>{record.contractor_name}</Text>
+      render: (_, record) => (
+        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+          <Text strong ellipsis style={{ maxWidth: 260 }}>{record.title}</Text>
+          {record.description && (
+            <Text type="secondary" ellipsis style={{ fontSize: 12, maxWidth: 260 }}>
+              {record.description}
+            </Text>
           )}
         </Space>
       ),
+    },
+    {
+      title: 'Контрагент',
+      dataIndex: 'contractor_name',
+      key: 'contractor',
+      width: 180,
+      ellipsis: true,
+      render: (value) => value ? (
+        <Tooltip title={value}>
+          <Text ellipsis strong style={{ fontSize: 13 }}>{value}</Text>
+        </Tooltip>
+      ) : <Text type="secondary">-</Text>,
     },
     {
       title: 'Сумма',
@@ -320,28 +471,56 @@ export default function ExpensesPage() {
       title: 'Категория',
       dataIndex: 'category_name',
       key: 'category_name',
-      width: 150,
-      render: (value) => value ? <Tag>{value}</Tag> : '-',
+      width: 160,
+      ellipsis: true,
+      render: (value) => value ? <Tag color="blue">{value}</Tag> : <Text type="secondary">-</Text>,
     },
     {
-      title: 'Транзакции',
-      key: 'linked',
-      width: 100,
+      title: 'Подразделение',
+      dataIndex: 'subdivision',
+      key: 'subdivision',
+      width: 140,
+      ellipsis: true,
+      render: (value, record) => value ? (
+        <Tooltip title={`${value}${record.subdivision_code ? ` (${record.subdivision_code})` : ''}`}>
+          <Text ellipsis style={{ fontSize: 12 }}>{value}</Text>
+        </Tooltip>
+      ) : <Text type="secondary">-</Text>,
+    },
+    {
+      title: 'Заметки',
+      dataIndex: 'notes',
+      key: 'notes',
+      width: 80,
       align: 'center',
-      render: (_, record) => (
-        record.linked_transactions_count > 0 ? (
-          <Tooltip title={`Привязано: ${formatAmount(record.linked_transactions_amount)}`}>
-            <Tag color="blue" icon={<LinkOutlined />}>
-              {record.linked_transactions_count}
-            </Tag>
+      render: (value) => (
+        value ? (
+          <Tooltip title={value}>
+            <Tag color="orange" icon={<FileTextOutlined />} />
           </Tooltip>
         ) : '-'
       ),
     },
     {
+      title: 'Связи',
+      key: 'linked',
+      width: 80,
+      align: 'center',
+      render: (_, record) => (
+        record.linked_transactions_count > 0 ? (
+          <Tooltip title={`Привязано: ${formatAmount(record.linked_transactions_amount)}`}>
+            <Tag color="green" icon={<LinkOutlined />}>
+              {record.linked_transactions_count}
+            </Tag>
+          </Tooltip>
+        ) : <Text type="secondary">-</Text>
+      ),
+    },
+    {
       title: 'Действия',
       key: 'actions',
-      width: 180,
+      width: 130,
+      fixed: 'right',
       render: (_, record) => (
         <Space size="small">
           <Tooltip title="Просмотр">
@@ -353,42 +532,9 @@ export default function ExpensesPage() {
           </Tooltip>
 
           {record.status === 'DRAFT' && (
-            <>
-              <Tooltip title="Редактировать">
-                <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-              </Tooltip>
-              <Tooltip title="На согласование">
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<SendOutlined />}
-                  onClick={() => submitMutation.mutate(record.id)}
-                  loading={submitMutation.isPending}
-                />
-              </Tooltip>
-            </>
-          )}
-
-          {record.status === 'PENDING' && (
-            <>
-              <Tooltip title="Согласовать">
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<CheckCircleOutlined />}
-                  onClick={() => approveMutation.mutate({ id: record.id, action: 'approve' })}
-                  style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
-                />
-              </Tooltip>
-              <Tooltip title="Отклонить">
-                <Button
-                  size="small"
-                  danger
-                  icon={<CloseCircleOutlined />}
-                  onClick={() => { setRejectingExpenseId(record.id); setRejectModalOpen(true) }}
-                />
-              </Tooltip>
-            </>
+            <Tooltip title="Редактировать">
+              <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+            </Tooltip>
           )}
 
           {['DRAFT', 'REJECTED', 'CANCELLED'].includes(record.status) && (
@@ -416,6 +562,34 @@ export default function ExpensesPage() {
             >
               Обновить
             </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => setIsSyncModalOpen(true)}
+            >
+              Синхронизация из 1С
+            </Button>
+            <Button
+              icon={<FileTextOutlined />}
+              onClick={handleExport}
+            >
+              Экспорт в Excel
+            </Button>
+            <Popconfirm
+              title="Удалить все заявки по текущему фильтру?"
+              description="Это действие необратимо!"
+              onConfirm={handleBulkDelete}
+              okText="Удалить"
+              cancelText="Отмена"
+              okButtonProps={{ danger: true }}
+            >
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                loading={bulkDeleteMutation.isPending}
+              >
+                Удалить по фильтру
+              </Button>
+            </Popconfirm>
             <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
               Новая заявка
             </Button>
@@ -494,6 +668,16 @@ export default function ExpensesPage() {
               onChange={(value) => setFilters({ ...filters, category_id: value })}
               options={categories.map((c) => ({ value: c.id, label: c.name }))}
             />
+            <Select
+              placeholder="Подразделение"
+              style={{ width: 200 }}
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              onChange={(value) => setFilters({ ...filters, subdivision: value })}
+              value={filters.subdivision}
+              options={uniqueSubdivisions.map((s) => ({ value: s, label: s }))}
+            />
             <RangePicker
               placeholder={['С', 'По']}
               format="DD.MM.YYYY"
@@ -519,8 +703,17 @@ export default function ExpensesPage() {
             dataSource={expenses}
             rowKey="id"
             loading={isLoading}
-            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (total) => `Всего ${total}` }}
-            scroll={{ x: 1200 }}
+            pagination={{
+              current: currentPage,
+              pageSize: pageSize,
+              total: totalExpenses,
+              showSizeChanger: true,
+              showTotal: (total) => `Всего ${total} заявок`,
+              onChange: handlePageChange,
+              pageSizeOptions: ['10', '25', '50', '100'],
+            }}
+            scroll={{ x: 1500 }}
+            size="small"
           />
         </Card>
       </Space>
@@ -650,18 +843,31 @@ export default function ExpensesPage() {
         title={`Заявка ${selectedExpense?.number}`}
         open={isDrawerOpen}
         onClose={() => { setIsDrawerOpen(false); setSelectedExpense(null) }}
-        width={600}
+        width="100%"
+        styles={{
+          body: {
+            padding: '12px',
+            overflowX: 'hidden'
+          }
+        }}
       >
         {selectedExpense && (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
-            <Descriptions column={2} bordered size="small">
+            <Descriptions column={1} bordered size="small">
               <Descriptions.Item label="Номер">{selectedExpense.number}</Descriptions.Item>
               <Descriptions.Item label="Статус">
                 <Tag color={statusColors[selectedExpense.status]}>
                   {statusLabels[selectedExpense.status]}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="Название" span={2}>{selectedExpense.title}</Descriptions.Item>
+              <Descriptions.Item label="Название" span={2}>
+                <Text strong>{selectedExpense.title}</Text>
+              </Descriptions.Item>
+              {selectedExpense.description && selectedExpense.description !== selectedExpense.title && (
+                <Descriptions.Item label="Описание" span={2}>
+                  <Text>{selectedExpense.description}</Text>
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="Сумма">{formatAmount(selectedExpense.amount)}</Descriptions.Item>
               <Descriptions.Item label="Оплачено">{formatAmount(selectedExpense.amount_paid)}</Descriptions.Item>
               <Descriptions.Item label="Дата заявки">
@@ -670,25 +876,60 @@ export default function ExpensesPage() {
               <Descriptions.Item label="Срок оплаты">
                 {selectedExpense.due_date ? dayjs(selectedExpense.due_date).format('DD.MM.YYYY') : '-'}
               </Descriptions.Item>
+              {selectedExpense.payment_date && (
+                <Descriptions.Item label="Дата оплаты" span={2}>
+                  {dayjs(selectedExpense.payment_date).format('DD.MM.YYYY')}
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="Контрагент" span={2}>
                 {selectedExpense.contractor_name || '-'}
                 {selectedExpense.contractor_inn && ` (ИНН: ${selectedExpense.contractor_inn})`}
               </Descriptions.Item>
+              <Descriptions.Item label="Организация" span={2}>
+                {selectedExpense.organization_name || '-'}
+              </Descriptions.Item>
+              {selectedExpense.subdivision && (
+                <Descriptions.Item label="Подразделение" span={2}>
+                  {selectedExpense.subdivision}
+                  {selectedExpense.subdivision_code && <Text type="secondary"> ({selectedExpense.subdivision_code})</Text>}
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="Категория">{selectedExpense.category_name || '-'}</Descriptions.Item>
               <Descriptions.Item label="Приоритет">
                 <Tag color={priorityColors[selectedExpense.priority]}>
                   {priorityLabels[selectedExpense.priority]}
                 </Tag>
               </Descriptions.Item>
-              {selectedExpense.payment_purpose && (
-                <Descriptions.Item label="Назначение" span={2}>{selectedExpense.payment_purpose}</Descriptions.Item>
+              {selectedExpense.payment_purpose &&
+               selectedExpense.payment_purpose !== selectedExpense.title &&
+               selectedExpense.payment_purpose !== selectedExpense.description && (
+                <Descriptions.Item label="Назначение платежа" span={2}>
+                  {selectedExpense.payment_purpose}
+                </Descriptions.Item>
+              )}
+              {selectedExpense.comment && (
+                <Descriptions.Item label="Комментарий 1С" span={2}>
+                  <Text type="secondary">{selectedExpense.comment}</Text>
+                </Descriptions.Item>
               )}
               {selectedExpense.notes && (
-                <Descriptions.Item label="Примечания" span={2}>{selectedExpense.notes}</Descriptions.Item>
+                <Descriptions.Item label="Примечания" span={2}>
+                  <Text style={{ whiteSpace: 'pre-wrap' }}>{selectedExpense.notes}</Text>
+                </Descriptions.Item>
               )}
               {selectedExpense.rejection_reason && (
                 <Descriptions.Item label="Причина отклонения" span={2}>
                   <Text type="danger">{selectedExpense.rejection_reason}</Text>
+                </Descriptions.Item>
+              )}
+              {selectedExpense.imported_from_1c && (
+                <Descriptions.Item label="Импорт из 1С" span={2}>
+                  <Tag color="cyan">Синхронизировано из 1С</Tag>
+                  {selectedExpense.synced_at && (
+                    <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                      {dayjs(selectedExpense.synced_at).format('DD.MM.YYYY HH:mm')}
+                    </Text>
+                  )}
                 </Descriptions.Item>
               )}
             </Descriptions>
@@ -738,6 +979,75 @@ export default function ExpensesPage() {
           </Space>
         )}
       </Drawer>
+
+      {/* Sync Modal */}
+      <Modal
+        title="Синхронизация заявок из 1С"
+        open={isSyncModalOpen}
+        onCancel={() => {
+          setIsSyncModalOpen(false)
+          setSyncTaskId(null)
+          setSyncProgress(null)
+        }}
+        footer={null}
+        width={600}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <Form
+            layout="vertical"
+            onFinish={(values) => {
+              const dateFrom = values.dateRange[0].format('YYYY-MM-DD')
+              const dateTo = values.dateRange[1].format('YYYY-MM-DD')
+              handleSync(dateFrom, dateTo)
+            }}
+            initialValues={{
+              dateRange: [dayjs().subtract(30, 'days'), dayjs()],
+            }}
+          >
+            <Form.Item
+              label="Период"
+              name="dateRange"
+              rules={[{ required: true, message: 'Выберите период' }]}
+            >
+              <RangePicker style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item>
+              <Button type="primary" htmlType="submit" loading={!!syncTaskId} block>
+                Запустить синхронизацию
+              </Button>
+            </Form.Item>
+          </Form>
+
+          {syncProgress && (
+            <Card size="small">
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text>Статус:</Text>
+                  <Tag color={syncProgress.status === 'completed' ? 'success' : 'processing'}>
+                    {syncProgress.status === 'running' && 'Выполняется'}
+                    {syncProgress.status === 'completed' && 'Завершено'}
+                    {syncProgress.status === 'failed' && 'Ошибка'}
+                    {syncProgress.status === 'pending' && 'Ожидание'}
+                  </Tag>
+                </div>
+                <Progress percent={syncProgress.progress || 0} status="active" />
+                {syncProgress.message && <Text type="secondary">{syncProgress.message}</Text>}
+                {syncProgress.result && (
+                  <div>
+                    <Text>Получено из 1С: {syncProgress.result.total_fetched || 0}</Text>
+                    <br />
+                    <Text>Создано: {syncProgress.result.total_created || 0}</Text>
+                    <br />
+                    <Text>Обновлено: {syncProgress.result.total_updated || 0}</Text>
+                    <br />
+                    <Text>Пропущено: {syncProgress.result.total_skipped || 0}</Text>
+                  </div>
+                )}
+              </Space>
+            </Card>
+          )}
+        </Space>
+      </Modal>
     </div>
   )
 }

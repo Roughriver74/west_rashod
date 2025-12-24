@@ -1,5 +1,5 @@
 """
-West Rashod - Bank Transactions Microservice
+West Поток (West Potok) - Bank Transactions Microservice
 FastAPI application entry point
 """
 import logging
@@ -34,6 +34,7 @@ from app.api.v1.users import router as users_router
 from app.api.v1.sync_1c import router as sync_1c_router
 from app.api.v1.sync_settings import router as sync_settings_router
 from app.api.v1.expenses import router as expenses_router
+from app.api.v1.analytics import router as analytics_router
 from app.api.v1.tasks import router as tasks_router
 from app.api.v1.websocket import router as websocket_router
 from app.api.v1.categorization_patterns import router as categorization_patterns_router
@@ -43,7 +44,7 @@ from app.api.v1.categorization_patterns import router as categorization_patterns
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
-    print("Starting West Rashod API...")
+    print("Starting West Поток API...")
 
     # Start sync scheduler
     from app.services.sync_scheduler import sync_scheduler
@@ -53,7 +54,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    print("Shutting down West Rashod API...")
+    print("Shutting down West Поток API...")
 
     # Stop sync scheduler
     sync_scheduler.stop()
@@ -167,6 +168,7 @@ def root():
 app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(bank_transactions_router, prefix=settings.API_PREFIX)
 app.include_router(expenses_router, prefix=settings.API_PREFIX)
+app.include_router(analytics_router, prefix=settings.API_PREFIX)
 app.include_router(mappings_router, prefix=settings.API_PREFIX)
 app.include_router(categories_router, prefix=settings.API_PREFIX)
 app.include_router(organizations_router, prefix=settings.API_PREFIX)

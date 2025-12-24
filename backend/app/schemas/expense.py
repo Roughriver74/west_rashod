@@ -86,6 +86,17 @@ class ExpenseInDB(ExpenseBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
+    # Fields from 1C sync
+    subdivision: Optional[str] = None
+    subdivision_code: Optional[str] = None
+    comment: Optional[str] = None
+    requester: Optional[str] = None
+    is_paid: bool = False
+    is_closed: bool = False
+    imported_from_1c: bool = False
+    needs_review: bool = False
+    synced_at: Optional[datetime] = None
+
     class Config:
         from_attributes = True
 

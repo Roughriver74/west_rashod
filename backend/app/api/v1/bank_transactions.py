@@ -662,7 +662,7 @@ def get_analytics(
     daily_flow = []
     for day_key, values in sorted(daily_dict.items()):
         daily_flow.append(DailyFlowData(
-            date=day_key,
+            date=day_key.date() if hasattr(day_key, 'date') else day_key,
             debit_amount=values['debit'],
             credit_amount=values['credit'],
             net_flow=values['credit'] - values['debit'],
@@ -847,7 +847,7 @@ def get_analytics(
     status_timeline = []
     for day_key, counts in sorted(timeline_dict.items()):
         status_timeline.append(StatusTimelinePoint(
-            date=day_key,
+            date=day_key.date() if hasattr(day_key, 'date') else day_key,
             new_count=counts['new'],
             categorized_count=counts['categorized'],
             matched_count=counts['matched'],

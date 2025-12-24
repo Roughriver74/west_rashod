@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ConfigProvider } from 'antd'
 import ruRU from 'antd/locale/ru_RU'
 import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
+import timezone from 'dayjs/plugin/timezone'
 import 'dayjs/locale/ru'
 
 import App from './App'
@@ -12,7 +14,12 @@ import { AuthProvider } from './contexts/AuthContext'
 
 import './index.css'
 
+// Configure dayjs
+dayjs.extend(utc)
+dayjs.extend(timezone)
 dayjs.locale('ru')
+// Set default timezone to browser's local timezone
+dayjs.tz.setDefault(dayjs.tz.guess())
 
 const queryClient = new QueryClient({
   defaultOptions: {

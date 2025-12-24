@@ -24,6 +24,9 @@ class SyncSettingsUpdate(BaseModel):
     sync_time_minute: Optional[int] = Field(None, ge=0, le=59)
     auto_classify: Optional[bool] = None
     sync_days_back: Optional[int] = Field(None, ge=1, le=365)
+    auto_sync_expenses_enabled: Optional[bool] = None
+    sync_expenses_interval_hours: Optional[int] = Field(None, ge=1, le=72)
+    sync_expenses_days_back: Optional[int] = Field(None, ge=1, le=365)
 
 
 class SyncSettingsResponse(BaseModel):
@@ -35,6 +38,9 @@ class SyncSettingsResponse(BaseModel):
     sync_time_minute: int
     auto_classify: bool
     sync_days_back: int
+    auto_sync_expenses_enabled: bool
+    sync_expenses_interval_hours: int
+    sync_expenses_days_back: int
     last_sync_started_at: Optional[datetime]
     last_sync_completed_at: Optional[datetime]
     last_sync_status: Optional[str]

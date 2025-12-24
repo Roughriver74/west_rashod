@@ -76,6 +76,8 @@ const SyncSettingsPage: React.FC = () => {
         sync_time_minute: data.sync_time_minute,
         auto_classify: data.auto_classify,
         sync_days_back: data.sync_days_back,
+        auto_sync_expenses_enabled: data.auto_sync_expenses_enabled,
+        sync_expenses_interval_hours: data.sync_expenses_interval_hours,
       });
     } catch (error: any) {
       message.error('Не удалось загрузить настройки');
@@ -96,6 +98,8 @@ const SyncSettingsPage: React.FC = () => {
         sync_time_minute: values.sync_time_minute,
         auto_classify: values.auto_classify,
         sync_days_back: values.sync_days_back,
+        auto_sync_expenses_enabled: values.auto_sync_expenses_enabled,
+        sync_expenses_interval_hours: values.sync_expenses_interval_hours,
       };
 
       const updatedSettings = await syncSettingsApi.updateSettings(updateData);
@@ -205,6 +209,8 @@ const SyncSettingsPage: React.FC = () => {
                 sync_time_minute: 0,
                 auto_classify: true,
                 sync_days_back: 30,
+                auto_sync_expenses_enabled: false,
+                sync_expenses_interval_hours: 24,
               }}
             >
               <Form.Item
@@ -282,6 +288,34 @@ const SyncSettingsPage: React.FC = () => {
                 <Switch
                   checkedChildren="Включено"
                   unCheckedChildren="Выключено"
+                />
+              </Form.Item>
+
+              <Divider>Синхронизация заявок</Divider>
+
+              <Form.Item
+                name="auto_sync_expenses_enabled"
+                label="Автоматическая синхронизация заявок"
+                valuePropName="checked"
+                tooltip="Автоматически загружать заявки на расход из 1С"
+              >
+                <Switch
+                  checkedChildren="Включено"
+                  unCheckedChildren="Выключено"
+                />
+              </Form.Item>
+
+              <Form.Item
+                name="sync_expenses_interval_hours"
+                label="Интервал синхронизации заявок (часы)"
+                rules={[{ required: true, message: 'Укажите интервал' }]}
+                tooltip="Как часто синхронизировать заявки (по умолчанию раз в сутки)"
+              >
+                <InputNumber
+                  min={1}
+                  max={72}
+                  style={{ width: '200px' }}
+                  suffix="час(ов)"
                 />
               </Form.Item>
 

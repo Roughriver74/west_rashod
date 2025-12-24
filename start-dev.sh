@@ -1,5 +1,5 @@
 #!/bin/bash
-# West Rashod - Quick Development Start Script
+# West Поток - Quick Development Start Script
 # Usage: ./start-dev.sh [option]
 # Options:
 #   all       - Start everything (DB + Backend + Frontend)
@@ -24,7 +24,7 @@ FRONTEND_DIR="$PROJECT_DIR/frontend"
 
 print_header() {
     echo -e "${BLUE}================================${NC}"
-    echo -e "${BLUE}  West Rashod Development${NC}"
+    echo -e "${BLUE}  West Поток Development${NC}"
     echo -e "${BLUE}================================${NC}"
 }
 
@@ -270,7 +270,7 @@ case "${1:-all}" in
         show_logs
         ;;
     *)
-        echo "West Rashod Development Script"
+        echo "West Поток Development Script"
         echo ""
         echo "Usage: $0 [option]"
         echo ""

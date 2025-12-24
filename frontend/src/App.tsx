@@ -10,6 +10,7 @@ import BankTransactionsAnalyticsPage from './pages/BankTransactionsAnalyticsPage
 import AnalyticsPage from './pages/AnalyticsPage'
 import RegularPaymentsPage from './pages/RegularPaymentsPage'
 import ExpensesPage from './pages/ExpensesPage'
+import PaymentCalendarPage from './pages/PaymentCalendarPage'
 import CategoriesPage from './pages/CategoriesPage'
 import CategorizationRulesPage from './pages/CategorizationRulesPage'
 import OrganizationsPage from './pages/OrganizationsPage'
@@ -52,6 +53,7 @@ function App() {
                 <Route path="/analytics" element={<AnalyticsPage />} />
                 <Route path="/regular-payments" element={<RegularPaymentsPage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />
+                <Route path="/payment-calendar" element={<PaymentCalendarPage />} />
                 <Route path="/categories" element={<CategoriesPage />} />
                 <Route path="/categorization-rules" element={<CategorizationRulesPage />} />
                 <Route path="/organizations" element={<OrganizationsPage />} />

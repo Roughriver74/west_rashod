@@ -8,6 +8,8 @@ export interface SyncSettings {
   sync_time_minute: number | null
   auto_classify: boolean
   sync_days_back: number
+  auto_sync_expenses_enabled: boolean
+  sync_expenses_interval_hours: number
   last_sync_started_at: string | null
   last_sync_completed_at: string | null
   last_sync_status: 'SUCCESS' | 'FAILED' | 'IN_PROGRESS' | null
@@ -23,6 +25,8 @@ export interface SyncSettingsUpdate {
   sync_time_minute?: number | null
   auto_classify?: boolean
   sync_days_back?: number
+  auto_sync_expenses_enabled?: boolean
+  sync_expenses_interval_hours?: number
 }
 
 export interface TriggerSyncResponse {

@@ -23,6 +23,8 @@ export interface Expense {
   contractor_inn: string | null
   organization_id: number | null
   organization_name: string | null
+  subdivision: string | null
+  subdivision_code: string | null
   status: ExpenseStatus
   priority: ExpensePriority
   requested_by: number | null
@@ -40,6 +42,15 @@ export interface Expense {
   remaining_amount: number | null
   linked_transactions_count: number
   linked_transactions_amount: number
+  // New fields from 1C sync
+  comment: string | null
+  requester: string | null
+  is_paid: boolean
+  is_closed: boolean
+  imported_from_1c: boolean
+  needs_review: boolean
+  synced_at: string | null
+  // Meta
   is_active: boolean
   created_at: string
   updated_at: string | null
@@ -68,8 +79,17 @@ export interface ExpenseFilters {
   category_id?: number
   organization_id?: number
   contractor_id?: number
+  subdivision?: string
   skip?: number
   limit?: number
+}
+
+export interface ExpenseList {
+  total: number
+  items: Expense[]
+  page: number
+  page_size: number
+  pages: number
 }
 
 export interface ExpenseCreate {
@@ -134,7 +154,7 @@ export interface MatchingSuggestion {
 
 // API Functions
 
-export const getExpenses = async (filters: ExpenseFilters = {}): Promise<Expense[]> => {
+export const getExpenses = async (filters: ExpenseFilters = {}): Promise<ExpenseList> => {
   const response = await apiClient.get('/expenses', { params: filters })
   return response.data
 }
@@ -219,6 +239,30 @@ export const autoMatchTransactions = async (threshold: number = 70, limit: numbe
 }> => {
   const response = await apiClient.post('/bank-transactions/auto-match', null, {
     params: { threshold, limit }
+  })
+  return response.data
+}
+
+// New API methods
+
+export const updateExpenseStatus = async (id: number, status: ExpenseStatus): Promise<Expense> => {
+  const response = await apiClient.patch(`/expenses/${id}/status`, null, {
+    params: { new_status: status }
+  })
+  return response.data
+}
+
+export const exportExpenses = async (filters: ExpenseFilters = {}): Promise<Blob> => {
+  const response = await apiClient.get('/expenses/export', {
+    params: filters,
+    responseType: 'blob'
+  })
+  return response.data
+}
+
+export const bulkDeleteExpenses = async (filters: ExpenseFilters = {}): Promise<{ message: string; count: number }> => {
+  const response = await apiClient.post('/expenses/bulk-delete', null, {
+    params: filters
   })
   return response.data
 }

@@ -642,7 +642,7 @@ class OData1CClient:
 
         while True:
             top_value = min(top, 1000)
-            filter_str = "DeletionMark eq false and IsFolder eq false"
+            filter_str = "DeletionMark eq false"
             endpoint_with_params = f'Catalog_Контрагенты?$top={top_value}&$format=json&$skip={current_skip}&$filter={filter_str}'
 
             logger.debug(f"Fetching contractors: top={top_value}, skip={current_skip}")
@@ -667,6 +667,78 @@ class OData1CClient:
             current_skip += len(results)
 
         return all_contractors
+
+    def get_counterparty_by_key(self, key: str) -> Optional[Dict[str, Any]]:
+        """
+        Получить контрагента по ключу (GUID)
+
+        Args:
+            key: GUID контрагента
+
+        Returns:
+            Данные контрагента или None
+        """
+        if not key or key == "00000000-0000-0000-0000-000000000000":
+            return None
+
+        try:
+            response = self._make_request(
+                method='GET',
+                endpoint=f"Catalog_Контрагенты(guid'{key}')",
+                params={'$format': 'json'}
+            )
+            return response
+        except Exception as e:
+            logger.warning(f"Failed to fetch counterparty {key}: {e}")
+            return None
+
+    def get_organization_by_key(self, key: str) -> Optional[Dict[str, Any]]:
+        """
+        Получить организацию по ключу (GUID)
+
+        Args:
+            key: GUID организации
+
+        Returns:
+            Данные организации или None
+        """
+        if not key or key == "00000000-0000-0000-0000-000000000000":
+            return None
+
+        try:
+            response = self._make_request(
+                method='GET',
+                endpoint=f"Catalog_Организации(guid'{key}')",
+                params={'$format': 'json'}
+            )
+            return response
+        except Exception as e:
+            logger.warning(f"Failed to fetch organization {key}: {e}")
+            return None
+
+    def get_budget_category_by_key(self, key: str) -> Optional[Dict[str, Any]]:
+        """
+        Получить категорию (статью ДДС) по ключу (GUID)
+
+        Args:
+            key: GUID категории
+
+        Returns:
+            Данные категории или None
+        """
+        if not key or key == "00000000-0000-0000-0000-000000000000":
+            return None
+
+        try:
+            response = self._make_request(
+                method='GET',
+                endpoint=f"Catalog_СтатьиДвиженияДенежныхСредств(guid'{key}')",
+                params={'$format': 'json'}
+            )
+            return response
+        except Exception as e:
+            logger.warning(f"Failed to fetch budget category {key}: {e}")
+            return None
 
     def get_counterparty_by_inn(self, inn: str) -> Optional[Dict[str, Any]]:
         """
@@ -729,6 +801,85 @@ class OData1CClient:
         except Exception as e:
             logger.error(f"Failed to search organization by INN {inn}: {e}")
             return None
+
+    def get_expense_requests(
+        self,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+        top: int = 100,
+        skip: int = 0,
+        only_posted: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        Получить заявки на расход из 1С
+
+        Args:
+            date_from: Начальная дата периода
+            date_to: Конечная дата периода
+            top: Количество записей (max 1000)
+            skip: Пропустить N записей (для пагинации)
+            only_posted: Только проведенные документы
+
+        Returns:
+            Список заявок на расход
+
+        Example:
+            >>> client = OData1CClient(...)
+            >>> expenses = client.get_expense_requests(
+            ...     date_from=date(2025, 1, 1),
+            ...     date_to=date(2025, 12, 31),
+            ...     top=100
+            ... )
+        """
+        top_value = min(top, 1000)
+        endpoint_with_params = f'Document_ЗаявкаНаРасходованиеДенежныхСредств?$top={top_value}&$format=json&$skip={skip}'
+
+        # Select only necessary fields
+        select_fields = [
+            'Ref_Key',
+            'Number',
+            'Date',
+            'СуммаДокумента',
+            'Организация_Key',
+            'Контрагент_Key',
+            'Подразделение_Key',  # GUID подразделения
+            'СтатьяДвиженияДенежныхСредств_Key',  # GUID категории (статьи ДДС)
+            'Комментарий',
+            'НазначениеПлатежа',
+            'Posted',
+            'Статус',
+            'ДатаПлатежа',
+            'DeletionMark'
+        ]
+        endpoint_with_params += f'&$select={",".join(select_fields)}'
+
+        # Build filter
+        mandatory_filters = "Posted eq true and DeletionMark eq false" if only_posted else "DeletionMark eq false"
+
+        if date_from and date_to:
+            filter_str = f"{mandatory_filters} and Date ge datetime'{date_from.isoformat()}T00:00:00' and Date le datetime'{date_to.isoformat()}T23:59:59'"
+            endpoint_with_params += f'&$filter={filter_str}'
+        elif date_from:
+            filter_str = f"{mandatory_filters} and Date ge datetime'{date_from.isoformat()}T00:00:00'"
+            endpoint_with_params += f'&$filter={filter_str}'
+        elif date_to:
+            filter_str = f"{mandatory_filters} and Date le datetime'{date_to.isoformat()}T23:59:59'"
+            endpoint_with_params += f'&$filter={filter_str}'
+        else:
+            endpoint_with_params += f'&$filter={mandatory_filters}'
+
+        logger.debug(f"Fetching expense requests: top={top_value}, skip={skip}, date_from={date_from}, date_to={date_to}")
+
+        response = self._make_request(
+            method='GET',
+            endpoint=endpoint_with_params,
+            params=None
+        )
+
+        results = response.get('value', [])
+        logger.debug(f"Fetched {len(results)} expense requests")
+
+        return results
 
     def test_connection(self) -> tuple[bool, str]:
         """

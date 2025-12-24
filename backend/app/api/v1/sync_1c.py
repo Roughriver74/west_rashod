@@ -521,3 +521,44 @@ async def start_async_full_sync(
         task_id=task_id,
         message=f"Full sync started. Track progress at /api/v1/tasks/{task_id}"
     )
+
+
+@router.post("/expenses/sync-async", response_model=AsyncSyncResponse)
+async def start_async_expenses_sync(
+    sync_request: AsyncSyncRequest,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Start async expenses sync from 1C."""
+    logger.info("=== ASYNC SYNC EXPENSES START ===")
+    logger.info(f"User: {current_user.username}, Request: {sync_request}")
+
+    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins and managers can sync expenses from 1C"
+        )
+
+    # Parse dates
+    if sync_request.date_from:
+        date_from = datetime.fromisoformat(sync_request.date_from.replace('Z', '+00:00')).date()
+    else:
+        date_from = date.today() - timedelta(days=30)
+
+    if sync_request.date_to:
+        date_to = datetime.fromisoformat(sync_request.date_to.replace('Z', '+00:00')).date()
+    else:
+        date_to = date.today()
+
+    # Start async task
+    task_id = AsyncSyncService.start_expenses_sync(
+        date_from=date_from,
+        date_to=date_to,
+        user_id=current_user.id
+    )
+
+    logger.info(f"Started async expenses sync task: {task_id}")
+
+    return AsyncSyncResponse(
+        task_id=task_id,
+        message=f"Expenses sync started. Track progress at /api/v1/tasks/{task_id}"
+    )

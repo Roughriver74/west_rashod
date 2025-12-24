@@ -54,3 +54,11 @@ export const syncCategories = async (_data: object = {}): Promise<Sync1CResult> 
   const response = await apiClient.post('/sync-1c/categories/sync')
   return response.data
 }
+
+export const syncExpenses = async (data: {
+  date_from?: string
+  date_to?: string
+}): Promise<{ task_id: string; message: string }> => {
+  const response = await apiClient.post('/sync-1c/expenses/sync-async', data)
+  return response.data
+}

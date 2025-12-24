@@ -2,10 +2,13 @@
 from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal
+import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, and_, or_
+
+logger = logging.getLogger(__name__)
 
 from app.db.session import get_db
 from app.db.models import (
@@ -46,10 +49,10 @@ def generate_expense_number(db: Session) -> str:
 
 # ==================== List & Stats ====================
 
-@router.get("/", response_model=List[ExpenseResponse])
+@router.get("/", response_model=ExpenseList)
 def get_expenses(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 50,
     status: Optional[ExpenseStatusEnum] = None,
     priority: Optional[ExpensePriorityEnum] = None,
     date_from: Optional[date] = None,
@@ -58,50 +61,64 @@ def get_expenses(
     category_id: Optional[int] = None,
     organization_id: Optional[int] = None,
     contractor_id: Optional[int] = None,
+    subdivision: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Get expenses with filters."""
-    query = db.query(Expense).options(
-        joinedload(Expense.category_rel),
-        joinedload(Expense.organization_rel),
-        joinedload(Expense.contractor_rel),
-        joinedload(Expense.requested_by_rel),
-        joinedload(Expense.approved_by_rel)
-    ).filter(Expense.is_active == True)
+    """Get expenses with filters and pagination."""
+    base_query = db.query(Expense).filter(Expense.is_active == True)
 
+    # Filters
     if status:
-        query = query.filter(Expense.status == status)
+        base_query = base_query.filter(Expense.status == status)
     if priority:
-        query = query.filter(Expense.priority == priority)
+        base_query = base_query.filter(Expense.priority == priority)
     if date_from:
-        query = query.filter(Expense.request_date >= date_from)
+        base_query = base_query.filter(Expense.request_date >= date_from)
     if date_to:
-        query = query.filter(Expense.request_date <= date_to)
+        base_query = base_query.filter(Expense.request_date <= date_to)
     if category_id:
-        query = query.filter(Expense.category_id == category_id)
+        base_query = base_query.filter(Expense.category_id == category_id)
     if organization_id:
-        query = query.filter(Expense.organization_id == organization_id)
+        base_query = base_query.filter(Expense.organization_id == organization_id)
     if contractor_id:
-        query = query.filter(Expense.contractor_id == contractor_id)
+        base_query = base_query.filter(Expense.contractor_id == contractor_id)
+    if subdivision:
+        base_query = base_query.filter(Expense.subdivision == subdivision)
 
+    # Search (включая новые поля comment и requester)
     if search:
         search_term = f"%{search}%"
-        query = query.filter(
+        base_query = base_query.filter(
             or_(
                 Expense.number.ilike(search_term),
                 Expense.title.ilike(search_term),
                 Expense.contractor_name.ilike(search_term),
                 Expense.contractor_inn.ilike(search_term),
-                Expense.payment_purpose.ilike(search_term)
+                Expense.payment_purpose.ilike(search_term),
+                Expense.comment.ilike(search_term),
+                Expense.requester.ilike(search_term)
             )
         )
 
-    expenses = query.order_by(
+    # Get total count
+    total = base_query.count()
+
+    # Order and paginate with eager loading
+    query = base_query.options(
+        joinedload(Expense.category_rel),
+        joinedload(Expense.organization_rel),
+        joinedload(Expense.contractor_rel),
+        joinedload(Expense.requested_by_rel),
+        joinedload(Expense.approved_by_rel)
+    ).order_by(
         Expense.request_date.desc(),
         Expense.id.desc()
-    ).offset(skip).limit(limit).all()
+    ).offset(skip).limit(limit)
 
+    expenses = query.all()
+
+    # Build response with related data
     result = []
     for exp in expenses:
         # Calculate linked transactions
@@ -124,7 +141,17 @@ def get_expenses(
 
         result.append(ExpenseResponse(**exp_dict))
 
-    return result
+    # Calculate pagination info
+    page = (skip // limit) + 1 if limit > 0 else 1
+    pages = (total + limit - 1) // limit if limit > 0 else 1
+
+    return ExpenseList(
+        total=total,
+        items=result,
+        page=page,
+        page_size=limit,
+        pages=pages
+    )
 
 
 @router.get("/stats", response_model=ExpenseStats)
@@ -287,7 +314,7 @@ def delete_expense(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Soft delete expense."""
+    """Delete expense permanently."""
     expense = db.query(Expense).filter(
         Expense.id == expense_id
     ).first()
@@ -306,7 +333,8 @@ def delete_expense(
                 detail="Cannot delete expense created by another user"
             )
 
-    expense.is_active = False
+    # Permanently delete from database
+    db.delete(expense)
     db.commit()
 
     return {"message": "Expense deleted"}
@@ -466,3 +494,212 @@ def unlink_transaction(
     db.commit()
 
     return {"message": "Transaction unlinked"}
+
+
+# ==================== Additional Endpoints ====================
+
+@router.patch("/{expense_id}/status", response_model=ExpenseResponse)
+def update_expense_status(
+    expense_id: int,
+    new_status: ExpenseStatusEnum,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Update expense status."""
+    expense = db.query(Expense).filter(
+        Expense.id == expense_id,
+        Expense.is_active == True
+    ).first()
+
+    if not expense:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Expense not found"
+        )
+
+    # Validate status transition
+    if new_status == ExpenseStatusEnum.PAID and expense.amount_paid < expense.amount:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot mark as PAID: expense not fully paid"
+        )
+
+    expense.status = new_status
+    expense.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(expense)
+
+    return expense
+
+
+@router.get("/export")
+def export_expenses(
+    status: Optional[ExpenseStatusEnum] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    category_id: Optional[int] = None,
+    organization_id: Optional[int] = None,
+    contractor_id: Optional[int] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Export expenses to Excel."""
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, Alignment
+    except ImportError:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Excel export requires openpyxl library"
+        )
+
+    # Build query with same filters as GET /
+    query = db.query(Expense).filter(Expense.is_active == True)
+
+    if status:
+        query = query.filter(Expense.status == status)
+    if date_from:
+        query = query.filter(Expense.request_date >= date_from)
+    if date_to:
+        query = query.filter(Expense.request_date <= date_to)
+    if category_id:
+        query = query.filter(Expense.category_id == category_id)
+    if organization_id:
+        query = query.filter(Expense.organization_id == organization_id)
+    if contractor_id:
+        query = query.filter(Expense.contractor_id == contractor_id)
+
+    expenses = query.options(
+        joinedload(Expense.category_rel),
+        joinedload(Expense.organization_rel),
+        joinedload(Expense.contractor_rel)
+    ).order_by(Expense.request_date.desc()).all()
+
+    # Create workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Заявки на расход"
+
+    # Headers
+    headers = [
+        "№", "Номер", "Название", "Сумма", "Дата заявки", "Срок оплаты",
+        "Дата платежа", "Статус", "Категория", "Организация", "Контрагент",
+        "Заявитель", "Комментарий", "Оплачено", "Импорт из 1С"
+    ]
+    ws.append(headers)
+
+    # Style headers
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal='center')
+
+    # Data rows
+    for idx, exp in enumerate(expenses, start=1):
+        ws.append([
+            idx,
+            exp.number or "",
+            exp.title or "",
+            float(exp.amount) if exp.amount else 0,
+            exp.request_date.isoformat() if exp.request_date else "",
+            exp.due_date.isoformat() if exp.due_date else "",
+            exp.payment_date.isoformat() if exp.payment_date else "",
+            exp.status.value if exp.status else "",
+            exp.category_rel.name if exp.category_rel else "",
+            exp.organization_rel.name if exp.organization_rel else "",
+            exp.contractor_name or (exp.contractor_rel.name if exp.contractor_rel else ""),
+            exp.requester or "",
+            exp.comment or "",
+            "Да" if exp.is_paid else "Нет",
+            "Да" if exp.imported_from_1c else "Нет"
+        ])
+
+    # Auto-size columns
+    for column in ws.columns:
+        max_length = 0
+        column_letter = column[0].column_letter
+        for cell in column:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = min(max_length + 2, 50)
+        ws.column_dimensions[column_letter].width = adjusted_width
+
+    # Save to BytesIO
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"expenses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.post("/bulk-delete")
+def bulk_delete_expenses(
+    status: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    category_id: Optional[int] = Query(None),
+    organization_id: Optional[int] = Query(None),
+    contractor_id: Optional[int] = Query(None),
+    subdivision: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Массовое удаление заявок по фильтру.
+    ВАЖНО: Эта операция необратима! Данные будут удалены из базы данных навсегда.
+    """
+    logger.info(f"Bulk delete request - status: {status}, date_from: {date_from}, date_to: {date_to}, "
+                f"category_id: {category_id}, org_id: {organization_id}, contractor_id: {contractor_id}, "
+                f"subdivision: {subdivision}, search: {search}")
+
+    status_filter = status
+
+    query = db.query(Expense)
+
+    # Применить все фильтры
+    if status_filter:
+        query = query.filter(Expense.status == status_filter)
+    if date_from:
+        query = query.filter(Expense.request_date >= date_from)
+    if date_to:
+        query = query.filter(Expense.request_date <= date_to)
+    if category_id:
+        query = query.filter(Expense.category_id == category_id)
+    if organization_id:
+        query = query.filter(Expense.organization_id == organization_id)
+    if contractor_id:
+        query = query.filter(Expense.contractor_id == contractor_id)
+    if subdivision:
+        query = query.filter(Expense.subdivision == subdivision)
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                Expense.number.ilike(search_term),
+                Expense.title.ilike(search_term),
+                Expense.contractor_name.ilike(search_term),
+                Expense.payment_purpose.ilike(search_term)
+            )
+        )
+
+    # Подсчитать количество
+    count = query.count()
+
+    # Полностью удалить из базы данных
+    query.delete(synchronize_session=False)
+    db.commit()
+
+    logger.info(f"Permanently deleted {count} expenses by user {current_user.id}")
+    return {"message": f"Удалено заявок: {count}", "count": count}

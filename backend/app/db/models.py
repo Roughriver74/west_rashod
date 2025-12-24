@@ -75,10 +75,10 @@ class DocumentTypeEnum(str, enum.Enum):
 class ExpenseStatusEnum(str, enum.Enum):
     """Expense request status."""
     DRAFT = "DRAFT"                  # Черновик
-    PENDING = "PENDING"              # На согласовании
+    PENDING = "PENDING"              # К оплате / На согласовании
     APPROVED = "APPROVED"            # Согласовано
     REJECTED = "REJECTED"            # Отклонено
-    PAID = "PAID"                    # Оплачено
+    PAID = "PAID"                    # Оплачено полностью
     PARTIALLY_PAID = "PARTIALLY_PAID"  # Частично оплачено
     CANCELLED = "CANCELLED"          # Отменено
 
@@ -259,6 +259,10 @@ class Expense(Base):
     # Organization
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
+    # Subdivision (подразделение)
+    subdivision = Column(String(255), nullable=True)  # Название подразделения
+    subdivision_code = Column(String(50), nullable=True)  # Код подразделения
+
     # Status and workflow
     status = Column(Enum(ExpenseStatusEnum), default=ExpenseStatusEnum.DRAFT, nullable=False, index=True)
     priority = Column(Enum(ExpensePriorityEnum), default=ExpensePriorityEnum.NORMAL)
@@ -277,14 +281,31 @@ class Expense(Base):
     # Additional
     notes = Column(Text, nullable=True)
     payment_purpose = Column(Text, nullable=True)  # Назначение платежа
+    comment = Column(Text, nullable=True)  # Комментарий (используется при синхронизации с 1С)
+    requester = Column(String(255), nullable=True)  # ФИО заявителя
+
+    # Status flags
+    is_paid = Column(Boolean, default=False, nullable=False)  # Оплачена
+    is_closed = Column(Boolean, default=False, nullable=False)  # Закрыта
+
+    # Import tracking
+    imported_from_1c = Column(Boolean, default=False, nullable=False)  # Загружена из 1С
+    needs_review = Column(Boolean, default=False, nullable=False)  # Требует проверки
 
     # 1C Integration
     external_id_1c = Column(String(100), nullable=True, unique=True, index=True)
+    synced_at = Column(DateTime, nullable=True)  # Время последней синхронизации с 1С
 
     # System
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # Indexes for query optimization
+    __table_args__ = (
+        Index('ix_expense_status_date', 'status', 'request_date'),
+        Index('ix_expense_payment_date', 'payment_date'),
+    )
 
     # Relationships
     category_rel = relationship("BudgetCategory")
@@ -491,6 +512,11 @@ class SyncSettings(Base):
     # Sync options
     auto_classify = Column(Boolean, default=True, nullable=False)
     sync_days_back = Column(Integer, default=30, nullable=False)  # How many days back to sync
+
+    # Expense sync settings
+    auto_sync_expenses_enabled = Column(Boolean, default=False, nullable=False)
+    sync_expenses_interval_hours = Column(Integer, default=24, nullable=False)  # Expenses sync interval
+    sync_expenses_days_back = Column(Integer, default=60, nullable=False)  # How many days back to sync expenses
 
     # Last sync info
     last_sync_started_at = Column(DateTime, nullable=True)

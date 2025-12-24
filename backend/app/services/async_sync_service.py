@@ -60,6 +60,7 @@ class AsyncSyncService:
     TASK_TYPE_ORGANIZATIONS = "sync_organizations"
     TASK_TYPE_CATEGORIES = "sync_categories"
     TASK_TYPE_CONTRACTORS = "sync_contractors"
+    TASK_TYPE_EXPENSES = "sync_expenses"
     TASK_TYPE_FULL_SYNC = "sync_full"
 
     @staticmethod
@@ -966,6 +967,216 @@ class AsyncSyncService:
 
         except Exception as e:
             db.rollback()
+            raise
+        finally:
+            db.close()
+
+    @classmethod
+    def start_expenses_sync(
+        cls,
+        date_from: date,
+        date_to: date,
+        user_id: int = None
+    ) -> str:
+        """
+        Запустить асинхронную синхронизацию заявок на расход.
+
+        Args:
+            date_from: Начальная дата периода
+            date_to: Конечная дата периода
+            user_id: ID пользователя, запустившего синхронизацию
+
+        Returns:
+            task_id для отслеживания прогресса
+        """
+        # Оценка общего количества (примерно)
+        days = (date_to - date_from).days + 1
+        estimated_total = days * 5  # Примерно 5 заявок на день
+
+        task_id = task_manager.create_task(
+            task_type=cls.TASK_TYPE_EXPENSES,
+            total=estimated_total,
+            metadata={
+                "date_from": date_from.isoformat(),
+                "date_to": date_to.isoformat(),
+                "user_id": user_id,
+            }
+        )
+
+        # Запуск асинхронной задачи
+        task_manager.run_async_task(
+            task_id,
+            cls._sync_expenses_async,
+            date_from=date_from,
+            date_to=date_to
+        )
+
+        return task_id
+
+    @classmethod
+    async def _sync_expenses_async(
+        cls,
+        task_id: str,
+        date_from: date,
+        date_to: date
+    ) -> Dict[str, Any]:
+        """
+        Асинхронный воркер для синхронизации заявок.
+
+        Args:
+            task_id: ID задачи для отслеживания прогресса
+            date_from: Начальная дата
+            date_to: Конечная дата
+
+        Returns:
+            Результат синхронизации
+        """
+        db = SessionLocal()
+        try:
+            from app.services.expense_1c_sync import Expense1CSync
+
+            client = create_1c_client_from_env()
+
+            task_manager.update_progress(
+                task_id, 0,
+                message="Подключение к 1С..."
+            )
+
+            # Проверка подключения
+            is_connected, message = client.test_connection()
+            if not is_connected:
+                raise Exception(f"Не удалось подключиться к 1С: {message}")
+
+            task_manager.update_progress(
+                task_id, 0,
+                message="Получение заявок из 1С..."
+            )
+
+            # Создать синкер
+            syncer = Expense1CSync(
+                db=db,
+                odata_client=client
+            )
+
+            # Запустить синхронизацию
+            # Используем батчи для обновления прогресса
+            total_fetched = 0
+            total_created = 0
+            total_updated = 0
+            total_skipped = 0
+            all_errors = []
+
+            skip = 0
+            batch_size = 100
+
+            while True:
+                # Получить батч
+                expenses = client.get_expense_requests(
+                    date_from=date_from,
+                    date_to=date_to,
+                    top=batch_size,
+                    skip=skip,
+                    only_posted=True
+                )
+
+                if not expenses:
+                    break
+
+                total_fetched += len(expenses)
+
+                # Обновить оценку total
+                if skip == 0:
+                    cls._set_task_total(task_id, max(total_fetched * 2, 1))
+
+                # Обработать батч
+                for i, doc in enumerate(expenses):
+                    try:
+                        ref_key = doc.get('Ref_Key')
+                        if not ref_key:
+                            total_skipped += 1
+                            continue
+
+                        # Маппинг данных
+                        expense_data = syncer._map_1c_to_expense(doc)
+
+                        # Проверка существования
+                        from app.db.models import Expense
+                        existing = db.query(Expense).filter(
+                            Expense.external_id_1c == ref_key
+                        ).first()
+
+                        if existing:
+                            syncer._update_expense(existing, expense_data)
+                            total_updated += 1
+                        else:
+                            syncer._create_expense(expense_data, ref_key)
+                            total_created += 1
+
+                    except Exception as e:
+                        error_msg = f"Ошибка обработки заявки {doc.get('Number', 'UNKNOWN')}: {str(e)}"
+                        logger.error(error_msg, exc_info=True)
+                        all_errors.append(error_msg)
+                        total_skipped += 1
+
+                # Коммит батча
+                try:
+                    db.commit()
+                except Exception as e:
+                    logger.error(f"Commit error: {e}")
+                    db.rollback()
+                    all_errors.append(f"Commit failed: {str(e)}")
+
+                # Обновление прогресса
+                processed = total_created + total_updated + total_skipped
+                percent = int((processed / max(total_fetched, 1)) * 100) if total_fetched > 0 else 0
+                message = (
+                    f"Обработано {processed}/{total_fetched} ({percent}%) - "
+                    f"создано: {total_created}, обновлено: {total_updated}, пропущено: {total_skipped}"
+                )
+                task_manager.update_progress(
+                    task_id,
+                    processed,
+                    message=message
+                )
+
+                # Следующий батч
+                skip += len(expenses)
+
+                # Небольшая пауза
+                if len(expenses) > 0:
+                    await asyncio.sleep(0.01)
+
+                # Если получили меньше batch_size, это последний батч
+                if len(expenses) < batch_size:
+                    break
+
+            # Финальное сообщение
+            final_message = (
+                f"Синхронизация завершена: получено {total_fetched}, "
+                f"создано {total_created}, обновлено {total_updated}, "
+                f"пропущено {total_skipped}"
+            )
+            task_manager.update_progress(
+                task_id,
+                total_fetched,
+                message=final_message
+            )
+
+            logger.info(final_message)
+
+            return {
+                "success": True,
+                "message": final_message,
+                "total_fetched": total_fetched,
+                "total_created": total_created,
+                "total_updated": total_updated,
+                "total_skipped": total_skipped,
+                "errors": all_errors[:10]
+            }
+
+        except Exception as e:
+            db.rollback()
+            logger.exception("Async expenses sync failed")
             raise
         finally:
             db.close()

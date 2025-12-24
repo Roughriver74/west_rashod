@@ -1,6 +1,7 @@
 import { Layout, Menu, Typography, Avatar, Dropdown, Space, Button } from 'antd'
 import {
   BankOutlined,
+  CalendarOutlined,
   DashboardOutlined,
   TagsOutlined,
   TeamOutlined,
@@ -60,6 +61,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
       label: 'Заявки на расходы',
     },
     {
+      key: '/payment-calendar',
+      icon: <CalendarOutlined />,
+      label: 'Календарь оплат',
+    },
+    {
       key: '/categories',
       icon: <TagsOutlined />,
       label: 'Категории',
@@ -112,12 +118,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
         <div style={{ padding: '16px', textAlign: 'center' }}>
           {!collapsed && (
             <Text style={{ color: 'white', fontSize: '18px', fontWeight: 'bold' }}>
-              West Rashod
+              West Поток
             </Text>
           )}
           {collapsed && (
             <Text style={{ color: 'white', fontSize: '18px', fontWeight: 'bold' }}>
-              WR
+              WP
             </Text>
           )}
         </div>

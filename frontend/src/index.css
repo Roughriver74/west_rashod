@@ -42,3 +42,18 @@ body {
 .ant-form-item-label > label {
   font-weight: 500;
 }
+
+/* Descriptions styles - prevent text breaking on every character */
+.ant-descriptions-item-label,
+.ant-descriptions-item-content {
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  word-wrap: break-word !important;
+  hyphens: auto;
+}
+
+/* Ensure proper text wrapping in descriptions */
+.ant-descriptions-item-content {
+  min-width: 0;
+  white-space: normal;
+}

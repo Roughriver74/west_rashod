@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     """Application settings."""
 
     # Application
-    APP_NAME: str = "West Rashod - Bank Transactions"
+    APP_NAME: str = "West Поток - Bank Transactions"
     DEBUG: bool = True
     API_PREFIX: str = "/api/v1"
 
@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://rashod_user:rashod_pass@localhost:54330/west_rashod_db"
 
     # Security
-    SECRET_KEY: str = "west-rashod-secret-key-change-in-production-min-32-chars"
+    SECRET_KEY: str = "west-potok-secret-key-change-in-production-min-32-chars"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 

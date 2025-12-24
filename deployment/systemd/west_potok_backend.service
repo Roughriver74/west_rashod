@@ -1,0 +1,30 @@
+[Unit]
+Description=West Поток Backend API
+After=network.target postgresql.service redis.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/west_potok/backend
+Environment="PATH=/opt/west_potok/backend/venv/bin"
+EnvironmentFile=/opt/west_potok/deployment/.env.prod
+
+# Команда запуска
+ExecStart=/opt/west_potok/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8005 --workers 4
+
+# Автоматический рестарт при падении
+Restart=always
+RestartSec=10
+
+# Ограничения
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Логирование
+StandardOutput=append:/var/log/west_potok/backend.log
+StandardError=append:/var/log/west_potok/backend_error.log
+
+[Install]
+WantedBy=multi-user.target
