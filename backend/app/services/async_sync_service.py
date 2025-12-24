@@ -702,10 +702,11 @@ class AsyncSyncService:
 
                 transaction = BankTransaction(**transaction_data)
 
-                # Apply AI classification if enabled
+                # Apply classification if enabled
+                # RULES auto-apply, AI only suggests
                 if importer.auto_classify and importer.classifier:
                     try:
-                        category_id, confidence, reasoning = importer.classifier.classify(
+                        category_id, confidence, reasoning, is_rule_based = importer.classifier.classify(
                             payment_purpose=transaction.payment_purpose,
                             counterparty_name=transaction.counterparty_name,
                             counterparty_inn=transaction.counterparty_inn,
@@ -714,11 +715,13 @@ class AsyncSyncService:
                             business_operation=transaction.business_operation
                         )
                         if category_id:
-                            if confidence >= 0.9:
+                            if is_rule_based:
+                                # RULE: auto-apply category
                                 transaction.category_id = category_id
                                 transaction.category_confidence = Decimal(str(confidence))
                                 transaction.status = BankTransactionStatusEnum.CATEGORIZED
                             else:
+                                # AI HEURISTIC: only suggest
                                 transaction.suggested_category_id = category_id
                                 transaction.category_confidence = Decimal(str(confidence))
                                 transaction.status = BankTransactionStatusEnum.NEEDS_REVIEW
@@ -774,6 +777,17 @@ class AsyncSyncService:
                 processed_offset=0,
                 total_count=len(org_docs)
             )
+
+            # Обновить банковскую информацию в транзакциях
+            task_manager.update_progress(task_id, len(org_docs), message="Обновление банковской информации...")
+            from app.services.bank_info_updater import update_transactions_bank_info
+            bank_stats = update_transactions_bank_info(db, client)
+            logger.info(f"Bank info update: {bank_stats}")
+
+            # Добавить статистику банков в result
+            result["bank_info_updated"] = bank_stats.get('updated', 0)
+            result["bank_info_errors"] = bank_stats.get('errors', 0)
+            result["message"] = f"{result['message']}. Обновлено банков: {bank_stats.get('updated', 0)}"
 
             return result
 

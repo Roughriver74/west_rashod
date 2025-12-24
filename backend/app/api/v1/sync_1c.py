@@ -220,13 +220,22 @@ def sync_organizations(
         db.commit()
         logger.info(f"=== SYNC ORGANIZATIONS DONE: created={created}, updated={updated}, errors={len(errors)} ===")
 
+        # Update bank information in transactions
+        logger.info("Updating bank information in transactions...")
+        from app.services.bank_info_updater import update_transactions_bank_info
+
+        bank_stats = update_transactions_bank_info(db, client)
+        logger.info(f"Bank info update: {bank_stats}")
+
         return Sync1CResult(
             success=True,
-            message=f"Synced organizations: {created} created, {updated} updated",
+            message=f"Synced organizations: {created} created, {updated} updated. Updated bank info in {bank_stats.get('updated', 0)} transactions.",
             statistics={
                 "created": created,
                 "updated": updated,
-                "total": len(org_docs)
+                "total": len(org_docs),
+                "bank_info_updated": bank_stats.get('updated', 0),
+                "bank_info_errors": bank_stats.get('errors', 0)
             },
             errors=errors
         )

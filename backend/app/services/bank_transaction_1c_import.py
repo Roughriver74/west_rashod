@@ -1132,12 +1132,18 @@ class BankTransaction1CImporter:
         return None
 
     def _apply_classification(self, transaction: BankTransaction):
-        """Применить AI классификацию к транзакции"""
+        """
+        Применить классификацию к транзакции.
+
+        Логика:
+        - Правила категоризации (is_rule_based=True) → автоматически применяются
+        - AI эвристика (is_rule_based=False) → только предлагается для проверки
+        """
         if not transaction.payment_purpose and not transaction.business_operation:
             return
 
         try:
-            category_id, confidence, reasoning = self.classifier.classify(
+            category_id, confidence, reasoning, is_rule_based = self.classifier.classify(
                 payment_purpose=transaction.payment_purpose,
                 counterparty_name=transaction.counterparty_name,
                 counterparty_inn=transaction.counterparty_inn,
@@ -1147,16 +1153,23 @@ class BankTransaction1CImporter:
             )
 
             if category_id:
-                if confidence >= 0.9:
+                if is_rule_based:
+                    # ПРАВИЛО: автоматически применяем категорию
+                    # (BusinessOperationMapping, CategorizationRule by INN/name/keyword)
                     transaction.category_id = category_id
                     transaction.category_confidence = Decimal(str(confidence))
                     transaction.status = BankTransactionStatusEnum.CATEGORIZED
-                    logger.debug(f"Auto-categorized transaction: {reasoning}")
+                    logger.debug(f"Auto-categorized by RULE: {reasoning}")
                 else:
+                    # AI ЭВРИСТИКА: только предлагаем для проверки
+                    # (historical matching, bank commission detection)
                     transaction.suggested_category_id = category_id
                     transaction.category_confidence = Decimal(str(confidence))
                     transaction.status = BankTransactionStatusEnum.NEEDS_REVIEW
-                    logger.debug(f"Suggested category for review: {reasoning}")
+                    logger.debug(f"AI suggestion (requires review): {reasoning}")
+            else:
+                # Категория не найдена - оставляем как NEW
+                logger.debug(f"No categorization: {reasoning}")
 
         except Exception as e:
             logger.warning(f"Classification failed for transaction: {e}")

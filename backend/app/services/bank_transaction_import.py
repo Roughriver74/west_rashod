@@ -286,9 +286,9 @@ class BankTransactionImporter:
                         imported_at=datetime.utcnow(),
                     )
 
-                    # AI Classification (for both DEBIT and CREDIT transactions)
+                    # Classification: RULES auto-apply, AI only suggests
                     try:
-                        category_id, confidence, reasoning = self.classifier.classify(
+                        category_id, confidence, reasoning, is_rule_based = self.classifier.classify(
                             payment_purpose=payment_purpose,
                             counterparty_name=counterparty_name,
                             counterparty_inn=counterparty_inn,
@@ -297,15 +297,15 @@ class BankTransactionImporter:
                         )
 
                         if category_id:
-                            transaction.suggested_category_id = category_id
                             transaction.category_confidence = float(confidence)
 
-                            # Auto-apply if high confidence
-                            if confidence >= constants.AI_HIGH_CONFIDENCE_THRESHOLD:
+                            if is_rule_based:
+                                # RULE: auto-apply category
                                 transaction.category_id = category_id
                                 transaction.status = BankTransactionStatusEnum.CATEGORIZED
-                            # Mark for review if medium confidence
-                            elif confidence >= constants.AI_MEDIUM_CONFIDENCE_THRESHOLD:
+                            else:
+                                # AI HEURISTIC: only suggest
+                                transaction.suggested_category_id = category_id
                                 transaction.status = BankTransactionStatusEnum.NEEDS_REVIEW
 
                     except Exception as e:
