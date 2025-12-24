@@ -5,13 +5,14 @@ from typing import Generator
 
 from app.core.config import settings
 
-# Create engine
+# Create engine with UTF-8 encoding
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
     echo=settings.DEBUG,
+    connect_args={"client_encoding": "utf8"},
 )
 
 # Create session factory
