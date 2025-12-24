@@ -59,11 +59,40 @@ rsync -av \
   frontend/index.html \
   $SERVER_USER@$SERVER:$APP_DIR/frontend/
 
-# 5. Обновить .env.production для frontend
-echo "⚙️  Обновление конфигурации frontend..."
+# 5. Обновить конфигурацию
+echo "⚙️  Обновление конфигурации..."
+
+# Frontend .env.production
 ssh $SERVER_USER@$SERVER "cat > $APP_DIR/frontend/.env.production << 'EOF'
 VITE_API_URL=http://$SERVER
 EOF
+"
+
+# Backend .env (если не существует или нужно обновить)
+echo "⚙️  Проверка backend .env..."
+ssh $SERVER_USER@$SERVER "
+if [ ! -f $APP_DIR/backend/.env ] || ! grep -q 'client_encoding=utf8' $APP_DIR/backend/.env; then
+    echo '⚙️  Обновление backend .env с UTF-8...'
+    cat > $APP_DIR/backend/.env << 'ENVEOF'
+DATABASE_URL=postgresql://rashod_user:rashod_pass_secure_2024@localhost:5432/west_rashod_db?client_encoding=utf8
+
+# 1C OData API Configuration
+ODATA_1C_URL=http://10.10.100.77/trade/odata/standard.odata
+ODATA_1C_USERNAME=odata.user
+ODATA_1C_PASSWORD=ak228Hu2hbs28
+
+# JWT Configuration
+SECRET_KEY=super-secret-key-for-jwt-rashod-2024
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=43200
+
+# CORS
+CORS_ORIGINS=http://localhost:5173,http://$SERVER
+
+# Debug
+DEBUG=False
+ENVEOF
+fi
 "
 
 # 6. Собрать frontend
