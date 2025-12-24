@@ -578,6 +578,18 @@ class AsyncSyncService:
                 total_count=total_docs
             )
 
+            # Обновить банковскую информацию в транзакциях
+            task_manager.update_progress(task_id, total_docs, message="Обновление банковской информации...")
+            from app.services.bank_info_updater import update_transactions_bank_info
+            bank_stats = update_transactions_bank_info(db, client)
+            logger.info(f"Bank info update: {bank_stats}")
+
+            # Добавить статистику банков в result
+            result["bank_info_updated"] = bank_stats.get('updated', 0)
+            result["bank_info_errors"] = bank_stats.get('errors', 0)
+            if bank_stats.get('updated', 0) > 0:
+                result["message"] = f"{result['message']}. Обновлено банков: {bank_stats.get('updated', 0)}"
+
             return result
 
         except Exception as e:
@@ -1064,7 +1076,20 @@ class AsyncSyncService:
                 total_count=total_for_progress
             )
 
+            # Обновить банковскую информацию в транзакциях
+            task_manager.update_progress(task_id, processed, message="Обновление банковской информации...")
+            from app.services.bank_info_updater import update_transactions_bank_info
+            bank_stats = update_transactions_bank_info(db, client)
+            logger.info(f"Bank info update: {bank_stats}")
+
+            # Добавить статистику банков в результат транзакций
+            bank_result["bank_info_updated"] = bank_stats.get('updated', 0)
+            bank_result["bank_info_errors"] = bank_stats.get('errors', 0)
+
             final_message = "Полная синхронизация завершена"
+            if bank_stats.get('updated', 0) > 0:
+                final_message += f". Обновлено банков: {bank_stats.get('updated', 0)}"
+
             task_manager.update_progress(task_id, processed, message=final_message)
 
             return {
