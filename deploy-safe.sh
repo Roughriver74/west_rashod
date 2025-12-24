@@ -7,8 +7,8 @@ set -e  # Остановка при ошибке
 
 SERVER="192.168.45.98"
 SERVER_USER="root"
-APP_DIR="/opt/west_potok"
-BACKUP_DIR="/opt/backups/west_potok"
+APP_DIR="/opt/west_rashod"
+BACKUP_DIR="/opt/backups/west_rashod"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="deploy_${TIMESTAMP}.log"
 
@@ -43,7 +43,7 @@ show_backend_logs() {
     log ""
     log "📋 Последние 30 строк логов backend:"
     log "════════════════════════════════════════"
-    ssh $SERVER_USER@$SERVER "journalctl -u west-potok-backend.service -n 30 --no-pager" 2>&1 | tee -a "$LOG_FILE"
+    ssh $SERVER_USER@$SERVER "journalctl -u west-rashod-backend.service -n 30 --no-pager" 2>&1 | tee -a "$LOG_FILE"
     log "════════════════════════════════════════"
 }
 

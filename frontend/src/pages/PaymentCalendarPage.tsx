@@ -24,8 +24,8 @@ import {
 } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs, { Dayjs } from 'dayjs'
-import type { ColumnsType, BadgeProps } from 'antd'
-import { getPaymentCalendar, getPaymentsByDay, PaymentCalendarDay } from '../api/analytics'
+import type { TableColumnsType } from 'antd'
+import { getPaymentCalendar, getPaymentsByDay } from '../api/analytics'
 import { Expense, ExpenseStatus } from '../api/expenses'
 import { getCategories } from '../api/categories'
 import { getOrganizations } from '../api/organizations'
@@ -165,7 +165,7 @@ export default function PaymentCalendarPage() {
     setIsModalOpen(true)
   }
 
-  const expenseColumns: ColumnsType<Expense> = [
+  const expenseColumns: TableColumnsType<Expense> = [
     {
       title: 'Номер',
       dataIndex: 'number',

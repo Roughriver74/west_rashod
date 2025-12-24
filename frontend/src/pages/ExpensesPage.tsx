@@ -25,9 +25,6 @@ import {
 import {
   PlusOutlined,
   SearchOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  SendOutlined,
   DeleteOutlined,
   EyeOutlined,
   EditOutlined,
@@ -45,7 +42,6 @@ import {
   createExpense,
   updateExpense,
   deleteExpense,
-  submitExpenseForApproval,
   approveExpense,
   exportExpenses,
   bulkDeleteExpenses,
@@ -54,7 +50,6 @@ import {
   ExpenseCreate,
   ExpenseStatus,
   ExpensePriority,
-  ExpenseList,
 } from '../api/expenses'
 import { getCategories } from '../api/categories'
 import { getOrganizations } from '../api/organizations'
@@ -206,16 +201,6 @@ export default function ExpensesPage() {
       queryClient.invalidateQueries({ queryKey: ['expense-stats'] })
     },
     onError: () => message.error('Ошибка при массовом удалении'),
-  })
-
-  const submitMutation = useMutation({
-    mutationFn: (id: number) => submitExpenseForApproval(id),
-    onSuccess: () => {
-      message.success('Заявка отправлена на согласование')
-      queryClient.invalidateQueries({ queryKey: ['expenses'] })
-      queryClient.invalidateQueries({ queryKey: ['expense-stats'] })
-    },
-    onError: () => message.error('Ошибка при отправке заявки'),
   })
 
   const approveMutation = useMutation({
@@ -1034,13 +1019,13 @@ export default function ExpensesPage() {
                 {syncProgress.message && <Text type="secondary">{syncProgress.message}</Text>}
                 {syncProgress.result && (
                   <div>
-                    <Text>Получено из 1С: {syncProgress.result.total_fetched || 0}</Text>
+                    <Text>Получено из 1С: {String(syncProgress.result.total_fetched || 0)}</Text>
                     <br />
-                    <Text>Создано: {syncProgress.result.total_created || 0}</Text>
+                    <Text>Создано: {String(syncProgress.result.total_created || 0)}</Text>
                     <br />
-                    <Text>Обновлено: {syncProgress.result.total_updated || 0}</Text>
+                    <Text>Обновлено: {String(syncProgress.result.total_updated || 0)}</Text>
                     <br />
-                    <Text>Пропущено: {syncProgress.result.total_skipped || 0}</Text>
+                    <Text>Пропущено: {String(syncProgress.result.total_skipped || 0)}</Text>
                   </div>
                 )}
               </Space>
