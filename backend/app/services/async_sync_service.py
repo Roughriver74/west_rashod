@@ -1,8 +1,10 @@
 """Async synchronization service for background 1C imports."""
 import logging
 import asyncio
-from typing import Optional, Dict, Any
-from datetime import date, datetime, timedelta
+import signal
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from typing import Optional, Dict, Any, List, Callable
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
@@ -13,10 +15,42 @@ from app.services.odata_1c_client import create_1c_client_from_env
 from app.services.bank_transaction_1c_import import BankTransaction1CImporter
 from app.db.models import (
     BankTransaction, BankTransactionTypeEnum, BankTransactionStatusEnum,
-    PaymentSourceEnum, DocumentTypeEnum, Organization, Contractor
+    PaymentSourceEnum, Organization, Contractor,
+    BudgetCategory, ExpenseTypeEnum
 )
 
 logger = logging.getLogger(__name__)
+
+
+def with_timeout(func: Callable, timeout_seconds: int, *args, **kwargs):
+    """
+    Выполняет функцию с таймаутом. Если функция не завершится за timeout_seconds,
+    выбрасывает TimeoutError.
+
+    Args:
+        func: Функция для выполнения
+        timeout_seconds: Максимальное время выполнения в секундах
+        *args, **kwargs: Аргументы для функции
+
+    Returns:
+        Результат выполнения функции
+
+    Raises:
+        TimeoutError: Если функция не завершилась за отведённое время
+    """
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(func, *args, **kwargs)
+
+    try:
+        result = future.result(timeout=timeout_seconds)
+        return result
+    except FuturesTimeoutError:
+        # Попытка отменить задачу
+        future.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise TimeoutError(f"Функция {func.__name__} превысила таймаут {timeout_seconds} сек")
+    finally:
+        executor.shutdown(wait=False)
 
 
 class AsyncSyncService:
@@ -26,6 +60,428 @@ class AsyncSyncService:
     TASK_TYPE_ORGANIZATIONS = "sync_organizations"
     TASK_TYPE_CATEGORIES = "sync_categories"
     TASK_TYPE_CONTRACTORS = "sync_contractors"
+    TASK_TYPE_FULL_SYNC = "sync_full"
+
+    @staticmethod
+    def _set_task_total(task_id: str, total: int) -> None:
+        """Safely set total items for progress calculation."""
+        task = task_manager.get_task(task_id)
+        if task:
+            task.total = max(total, 1)
+
+    @staticmethod
+    def _fetch_bank_documents(client, date_from: date, date_to: date) -> List[tuple[str, Dict[str, Any]]]:
+        """Fetch all bank-related documents from 1C with pagination."""
+        all_docs: List[tuple[str, Dict[str, Any]]] = []
+
+        # Fetch all receipts with pagination
+        skip = 0
+        while True:
+            receipts = client.get_bank_receipts(date_from, date_to, top=1000, skip=skip)
+            if not receipts:
+                break
+            all_docs.extend([("receipt", doc) for doc in receipts])
+            skip += len(receipts)
+            if len(receipts) < 1000:  # Last page
+                break
+
+        # Fetch all payments with pagination
+        skip = 0
+        while True:
+            payments = client.get_bank_payments(date_from, date_to, top=1000, skip=skip)
+            if not payments:
+                break
+            all_docs.extend([("payment", doc) for doc in payments])
+            skip += len(payments)
+            if len(payments) < 1000:  # Last page
+                break
+
+        # Fetch all cash receipts with pagination
+        skip = 0
+        while True:
+            cash_receipts = client.get_cash_receipts(date_from, date_to, top=1000, skip=skip)
+            if not cash_receipts:
+                break
+            all_docs.extend([("cash_receipt", doc) for doc in cash_receipts])
+            skip += len(cash_receipts)
+            if len(cash_receipts) < 1000:  # Last page
+                break
+
+        # Fetch all cash payments with pagination
+        skip = 0
+        while True:
+            cash_payments = client.get_cash_payments(date_from, date_to, top=1000, skip=skip)
+            if not cash_payments:
+                break
+            all_docs.extend([("cash_payment", doc) for doc in cash_payments])
+            skip += len(cash_payments)
+            if len(cash_payments) < 1000:  # Last page
+                break
+
+        return all_docs
+
+    @classmethod
+    async def _import_organizations(
+        cls,
+        task_id: str,
+        db: Session,
+        org_docs: List[Dict[str, Any]],
+        processed_offset: int = 0,
+        total_count: Optional[int] = None
+    ) -> tuple[Dict[str, Any], int]:
+        """Process organization documents and update progress."""
+        total = len(org_docs)
+        total_for_progress = total_count if total_count is not None else total
+        cls._set_task_total(task_id, total_for_progress if total_for_progress else 1)
+
+        if total == 0:
+            message = "Нет организаций для синхронизации"
+            task_manager.update_progress(task_id, processed_offset, message=message)
+            return {
+                "success": True,
+                "message": message,
+                "total": 0,
+                "created": 0,
+                "updated": 0,
+                "errors": []
+            }, processed_offset
+
+        created = 0
+        updated = 0
+        errors: List[str] = []
+
+        for i, org_doc in enumerate(org_docs):
+            name = (
+                org_doc.get("Description")
+                or org_doc.get("НаименованиеПолное")
+                or org_doc.get("НаименованиеСокращенное")
+                or f"Организация {i + 1}"
+            )
+            try:
+                ref_key = org_doc.get("Ref_Key")
+                if not ref_key:
+                    continue
+
+                full_name = org_doc.get("НаименованиеПолное") or name
+                short_name = org_doc.get("НаименованиеСокращенное") or name
+
+                existing = db.query(Organization).filter(
+                    Organization.external_id_1c == ref_key
+                ).first()
+
+                if not existing:
+                    existing = db.query(Organization).filter(
+                        Organization.name == name
+                    ).first()
+
+                if existing:
+                    existing.name = name[:255]
+                    existing.full_name = full_name[:500] if full_name else None
+                    existing.short_name = short_name[:255] if short_name else None
+                    existing.inn = org_doc.get("ИНН", existing.inn)
+                    existing.kpp = org_doc.get("КПП", existing.kpp)
+                    existing.external_id_1c = ref_key
+                    existing.synced_at = datetime.utcnow()
+                    updated += 1
+                else:
+                    org = Organization(
+                        name=name[:255],
+                        full_name=full_name[:500] if full_name else None,
+                        short_name=short_name[:255] if short_name else None,
+                        inn=org_doc.get("ИНН"),
+                        kpp=org_doc.get("КПП"),
+                        external_id_1c=ref_key,
+                        synced_at=datetime.utcnow()
+                    )
+                    db.add(org)
+                    db.flush()
+                    created += 1
+
+                if (i + 1) % 100 == 0:
+                    try:
+                        db.commit()
+                    except Exception as commit_error:
+                        logger.error(f"Commit error: {commit_error}")
+                        db.rollback()
+                        errors.append(f"Commit failed at {i + 1}: {str(commit_error)}")
+
+                processed_value = processed_offset + i + 1
+                if i % 20 == 0 or i == total - 1:
+                    task_manager.update_progress(
+                        task_id,
+                        processed_value,
+                        message=f"Организации: обработано {i + 1} из {total}"
+                    )
+
+                if i % 50 == 0:
+                    await asyncio.sleep(0.01)
+
+            except Exception as e:
+                db.rollback()
+                errors.append(f"Org '{name}': {str(e)}")
+                logger.error(f"Error processing org '{name}': {e}")
+
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"Final commit error: {e}")
+            db.rollback()
+            errors.append(f"Final commit failed: {str(e)}")
+
+        final_processed = processed_offset + total
+        task_manager.update_progress(
+            task_id,
+            final_processed,
+            message="Организации синхронизированы"
+        )
+
+        return {
+            "success": True,
+            "message": f"Организации: {created} создано, {updated} обновлено",
+            "total": total,
+            "created": created,
+            "updated": updated,
+            "errors": errors[:10],
+        }, final_processed
+
+    @classmethod
+    async def _import_categories(
+        cls,
+        task_id: str,
+        db: Session,
+        cat_docs: List[Dict[str, Any]],
+        processed_offset: int = 0,
+        total_count: Optional[int] = None
+    ) -> tuple[Dict[str, Any], int]:
+        """Process category documents and update progress."""
+        total = len(cat_docs)
+        total_for_progress = total_count if total_count is not None else total
+        cls._set_task_total(task_id, total_for_progress if total_for_progress else 1)
+
+        if total == 0:
+            message = "Нет категорий для синхронизации"
+            task_manager.update_progress(task_id, processed_offset, message=message)
+            return {
+                "success": True,
+                "message": message,
+                "total": 0,
+                "created": 0,
+                "updated": 0,
+                "errors": []
+            }, processed_offset
+
+        created = 0
+        updated = 0
+        errors: List[str] = []
+
+        for i, cat_doc in enumerate(cat_docs):
+            name = cat_doc.get("Description", "Unknown")
+            try:
+                ref_key = cat_doc.get("Ref_Key")
+                if not ref_key:
+                    continue
+
+                existing = db.query(BudgetCategory).filter(
+                    BudgetCategory.external_id_1c == ref_key
+                ).first()
+
+                if existing:
+                    existing.name = name
+                    updated += 1
+                else:
+                    cat = BudgetCategory(
+                        name=name,
+                        type=ExpenseTypeEnum.OPEX,
+                        external_id_1c=ref_key,
+                        is_folder=cat_doc.get("IsFolder", False)
+                    )
+                    db.add(cat)
+                    db.flush()
+                    created += 1
+
+                if (i + 1) % 100 == 0:
+                    try:
+                        db.commit()
+                    except Exception as commit_error:
+                        logger.error(f"Commit error: {commit_error}")
+                        db.rollback()
+                        errors.append(f"Commit failed at {i + 1}: {str(commit_error)}")
+
+                processed_value = processed_offset + i + 1
+                if i % 20 == 0 or i == total - 1:
+                    task_manager.update_progress(
+                        task_id,
+                        processed_value,
+                        message=f"Категории: обработано {i + 1} из {total}"
+                    )
+
+                if i % 50 == 0:
+                    await asyncio.sleep(0.01)
+
+            except Exception as e:
+                db.rollback()
+                errors.append(f"Cat '{name}': {str(e)}")
+                logger.error(f"Error processing category '{name}': {e}")
+
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"Final commit error: {e}")
+            db.rollback()
+            errors.append(f"Final commit failed: {str(e)}")
+
+        final_processed = processed_offset + total
+        task_manager.update_progress(
+            task_id,
+            final_processed,
+            message="Категории синхронизированы"
+        )
+
+        return {
+            "success": True,
+            "message": f"Категории: {created} создано, {updated} обновлено",
+            "total": total,
+            "created": created,
+            "updated": updated,
+            "errors": errors[:10],
+        }, final_processed
+
+    @classmethod
+    async def _import_bank_documents(
+        cls,
+        task_id: str,
+        db: Session,
+        importer: BankTransaction1CImporter,
+        all_docs: List[tuple[str, Dict[str, Any]]],
+        processed_offset: int = 0,
+        total_count: Optional[int] = None
+    ) -> tuple[Dict[str, Any], int]:
+        """Process bank documents and update progress."""
+        total_docs = len(all_docs)
+        total_for_progress = total_count if total_count is not None else total_docs
+        cls._set_task_total(task_id, total_for_progress if total_for_progress else 1)
+
+        if total_docs == 0:
+            message = "Нет данных для импорта"
+            task_manager.update_progress(task_id, processed_offset, message=message)
+            return {
+                "success": True,
+                "message": message,
+                "total_fetched": 0,
+                "total_created": 0,
+                "total_updated": 0,
+                "total_skipped": 0,
+                "errors": [],
+            }, processed_offset
+
+        created = 0
+        updated = 0
+        skipped = 0
+        errors: List[str] = []
+
+        # Увеличенный размер батча для более эффективных коммитов
+        batch_size = 500
+        last_commit_index = 0
+
+        logger.info(f"Starting import of {total_docs} bank documents (batch size: {batch_size})")
+
+        for i, (doc_type, doc) in enumerate(all_docs):
+            try:
+                # Проверка отмены задачи
+                task = task_manager.get_task(task_id)
+                if task and task.status == TaskStatus.CANCELLED:
+                    logger.info(f"Task {task_id} was cancelled by user at {i + 1}/{total_docs}")
+                    break
+
+                # Обработка документа с таймаутом 90 секунд
+                # Если обработка зависнет, документ будет пропущен
+                try:
+                    result = with_timeout(
+                        cls._process_document,
+                        90,  # Таймаут 90 секунд (учитывая retry в HTTP-запросах)
+                        db, importer, doc_type, doc
+                    )
+                    if result == "created":
+                        created += 1
+                    elif result == "updated":
+                        updated += 1
+                    else:
+                        skipped += 1
+                except TimeoutError as timeout_err:
+                    logger.warning(f"Document {i + 1} ({doc_type}) timeout: {timeout_err}")
+                    errors.append(f"Document {i + 1} ({doc_type}): timeout after 90 seconds")
+                    skipped += 1
+                    # Продолжаем обработку следующего документа
+
+                # Коммит каждые batch_size записей
+                if (i + 1) % batch_size == 0:
+                    try:
+                        db.commit()
+                        last_commit_index = i + 1
+                        logger.info(f"Committed batch at {i + 1}/{total_docs} ({created} created, {updated} updated, {skipped} skipped)")
+                    except Exception as commit_error:
+                        logger.error(f"Commit error at item {i + 1}: {commit_error}", exc_info=True)
+                        db.rollback()
+                        errors.append(f"Commit failed at {i + 1}: {str(commit_error)}")
+                        # Продолжаем обработку после ошибки коммита
+
+                # Обновление прогресса каждые 50 записей или на последней записи
+                if i % 50 == 0 or i == total_docs - 1:
+                    processed_value = processed_offset + i + 1
+                    percent = int((i + 1) / total_docs * 100)
+                    message = f"Обработано {i + 1}/{total_docs} ({percent}%) - создано: {created}, обновлено: {updated}, пропущено: {skipped}"
+                    task_manager.update_progress(
+                        task_id,
+                        processed_value,
+                        message=message
+                    )
+
+                    # Логирование каждые 500 записей для отслеживания прогресса
+                    if (i + 1) % 500 == 0:
+                        logger.info(f"Progress: {message}")
+
+                # Небольшая пауза для разгрузки event loop
+                if i % 100 == 0:
+                    await asyncio.sleep(0.001)
+
+            except Exception as e:
+                # КРИТИЧНО: НЕ делаем rollback здесь - это блокирует всю обработку
+                # Просто логируем ошибку и пропускаем проблемный документ
+                error_msg = f"Document {i + 1} ({doc_type}): {str(e)}"
+                errors.append(error_msg)
+                logger.error(f"Error processing {error_msg}", exc_info=True)
+                skipped += 1
+                # Продолжаем обработку следующего документа
+
+        # Финальный коммит для оставшихся записей
+        try:
+            if last_commit_index < total_docs:
+                db.commit()
+                logger.info(f"Final commit: total {created} created, {updated} updated, {skipped} skipped")
+        except Exception as e:
+            logger.error(f"Final commit error: {e}", exc_info=True)
+            db.rollback()
+            errors.append(f"Final commit failed: {str(e)}")
+
+        final_processed = processed_offset + total_docs
+        final_message = f"Завершено: {created} создано, {updated} обновлено, {skipped} пропущено"
+        task_manager.update_progress(
+            task_id,
+            final_processed,
+            message=final_message
+        )
+
+        logger.info(f"Import complete: {final_message}, {len(errors)} errors")
+
+        return {
+            "success": True,
+            "message": f"Импорт завершён: {created} создано, {updated} обновлено, {skipped} пропущено",
+            "total_fetched": total_docs,
+            "total_created": created,
+            "total_updated": updated,
+            "total_skipped": skipped,
+            "errors": errors[:10],  # Limit errors
+        }, final_processed
 
     @classmethod
     def start_bank_transactions_sync(
@@ -83,67 +539,29 @@ class AsyncSyncService:
             # Test connection
             is_connected, message = client.test_connection()
             if not is_connected:
-                raise Exception(f"Не удалось подключиться к 1С: {message}")
-
-            task_manager.update_progress(
-                task_id, 5,
-                message="Получение данных из 1С..."
-            )
-
-            # Fetch all documents in batches for progress tracking
-            all_docs = []
-
-            # Fetch bank receipts
-            task_manager.update_progress(task_id, 10, message="Загрузка поступлений...")
-            receipts = client.get_bank_receipts(date_from, date_to)
-            all_docs.extend([("receipt", doc) for doc in receipts])
-
-            await asyncio.sleep(0.1)  # Yield to allow cancellation
-
-            # Fetch bank payments
-            task_manager.update_progress(task_id, 20, message="Загрузка списаний...")
-            payments = client.get_bank_payments(date_from, date_to)
-            all_docs.extend([("payment", doc) for doc in payments])
-
-            await asyncio.sleep(0.1)
-
-            # Fetch cash receipts
-            task_manager.update_progress(task_id, 30, message="Загрузка ПКО...")
-            cash_receipts = client.get_cash_receipts(date_from, date_to)
-            all_docs.extend([("cash_receipt", doc) for doc in cash_receipts])
-
-            await asyncio.sleep(0.1)
-
-            # Fetch cash payments
-            task_manager.update_progress(task_id, 40, message="Загрузка РКО...")
-            cash_payments = client.get_cash_payments(date_from, date_to)
-            all_docs.extend([("cash_payment", doc) for doc in cash_payments])
-
-            total_docs = len(all_docs)
-            if total_docs == 0:
-                return {
-                    "success": True,
-                    "message": "Нет данных для импорта",
-                    "total_fetched": 0,
-                    "total_created": 0,
-                    "total_updated": 0,
-                }
-
-            # Update total with actual count
-            task = task_manager.get_task(task_id)
-            if task:
-                task.total = total_docs
+                raise Exception(f"Не удалось подключиться к 1С OData: {message}")
 
             task_manager.update_progress(
                 task_id, 0,
-                message=f"Обработка {total_docs} документов..."
+                message="Получение данных из 1С..."
             )
 
-            # Process documents
-            created = 0
-            updated = 0
-            skipped = 0
-            errors = []
+            all_docs = cls._fetch_bank_documents(client, date_from, date_to)
+            total_docs = len(all_docs)
+            cls._set_task_total(task_id, total_docs or 1)
+
+            if total_docs == 0:
+                message = "Нет данных для импорта"
+                task_manager.update_progress(task_id, 1, message=message)
+                return {
+                    "success": True,
+                    "message": message,
+                    "total_fetched": 0,
+                    "total_created": 0,
+                    "total_updated": 0,
+                    "total_skipped": 0,
+                    "errors": [],
+                }
 
             importer = BankTransaction1CImporter(
                 db=db,
@@ -151,66 +569,16 @@ class AsyncSyncService:
                 auto_classify=auto_classify
             )
 
-            for i, (doc_type, doc) in enumerate(all_docs):
-                try:
-                    # Process single document
-                    result = cls._process_document(db, importer, doc_type, doc)
-                    if result == "created":
-                        created += 1
-                    elif result == "updated":
-                        updated += 1
-                    else:
-                        skipped += 1
-
-                    # Commit every 100 items to avoid long transactions
-                    if (i + 1) % 100 == 0:
-                        try:
-                            db.commit()
-                        except Exception as commit_error:
-                            logger.error(f"Commit error at item {i + 1}: {commit_error}")
-                            db.rollback()
-                            errors.append(f"Commit failed at {i + 1}: {str(commit_error)}")
-
-                    # Update progress every 10 items
-                    if i % 10 == 0 or i == total_docs - 1:
-                        progress = 40 + int((i / total_docs) * 55)  # 40-95%
-                        task_manager.update_progress(
-                            task_id,
-                            i + 1,
-                            message=f"Обработано {i + 1} из {total_docs} ({created} создано, {updated} обновлено)"
-                        )
-
-                    # Yield periodically to allow cancellation
-                    if i % 50 == 0:
-                        await asyncio.sleep(0.01)
-
-                except Exception as e:
-                    errors.append(str(e))
-                    logger.error(f"Error processing document: {e}")
-                    db.rollback()
-
-            # Final commit
-            try:
-                db.commit()
-            except Exception as e:
-                logger.error(f"Final commit error: {e}")
-                db.rollback()
-                errors.append(f"Final commit failed: {str(e)}")
-
-            task_manager.update_progress(
-                task_id, total_docs,
-                message="Завершено!"
+            result, _ = await cls._import_bank_documents(
+                task_id,
+                db,
+                importer,
+                all_docs,
+                processed_offset=0,
+                total_count=total_docs
             )
 
-            return {
-                "success": True,
-                "message": f"Импорт завершён: {created} создано, {updated} обновлено, {skipped} пропущено",
-                "total_fetched": total_docs,
-                "total_created": created,
-                "total_updated": updated,
-                "total_skipped": skipped,
-                "errors": errors[:10],  # Limit errors
-            }
+            return result
 
         except Exception as e:
             db.rollback()
@@ -227,83 +595,242 @@ class AsyncSyncService:
         doc_type: str,
         doc: Dict
     ) -> str:
-        """Process a single document. Returns 'created', 'updated', or 'skipped'."""
+        """Process a single document using importer methods.
+
+        Returns 'created', 'updated', or 'skipped'.
+        """
         ref_key = doc.get("Ref_Key")
         if not ref_key:
+            logger.debug("Skipping document without Ref_Key")
             return "skipped"
 
-        # Check if exists
-        existing = db.query(BankTransaction).filter(
-            BankTransaction.external_id_1c == ref_key
-        ).first()
+        try:
+            # Check if exists
+            existing = db.query(BankTransaction).filter(
+                BankTransaction.external_id_1c == ref_key
+            ).first()
 
-        # Parse common fields
-        amount = Decimal(str(doc.get("СуммаДокумента", 0) or 0))
-        if amount == 0:
-            return "skipped"
+            # Parse amount
+            amount = Decimal(str(doc.get("СуммаДокумента", 0) or 0))
+            if amount == 0:
+                logger.debug(f"Skipping document {ref_key} with zero amount")
+                return "skipped"
 
-        tx_date = None
-        date_str = doc.get("Date") or doc.get("Дата")
-        if date_str:
+            # Use importer's parsing methods for correct data extraction
             try:
-                if "T" in str(date_str):
-                    tx_date = datetime.fromisoformat(str(date_str).replace("Z", "+00:00")).date()
+                if doc_type == "receipt":
+                    transaction_data = importer._parse_receipt_data(doc)
+                    tx_type = BankTransactionTypeEnum.CREDIT
+                    payment_source = PaymentSourceEnum.BANK
+                elif doc_type == "payment":
+                    transaction_data = importer._parse_payment_data(doc)
+                    tx_type = BankTransactionTypeEnum.DEBIT
+                    payment_source = PaymentSourceEnum.BANK
+                elif doc_type == "cash_receipt":
+                    transaction_data = importer._parse_cash_receipt_data(doc)
+                    tx_type = BankTransactionTypeEnum.CREDIT
+                    payment_source = PaymentSourceEnum.CASH
+                elif doc_type == "cash_payment":
+                    transaction_data = importer._parse_cash_payment_data(doc)
+                    tx_type = BankTransactionTypeEnum.DEBIT
+                    payment_source = PaymentSourceEnum.CASH
                 else:
-                    tx_date = datetime.strptime(str(date_str)[:10], "%Y-%m-%d").date()
-            except (ValueError, TypeError):
-                pass
+                    logger.warning(f"Unknown document type: {doc_type}")
+                    return "skipped"
+            except Exception as e:
+                logger.warning(f"Failed to parse document {ref_key} ({doc_type}): {e}")
+                return "skipped"
 
-        if not tx_date:
+            if not transaction_data.get('transaction_date'):
+                logger.debug(f"Skipping document {ref_key} without transaction date")
+                return "skipped"
+
+            # Ensure business_operation mapping exists (с использованием кэша импортера)
+            if transaction_data.get('business_operation'):
+                from app.db.models import BusinessOperationMapping
+                business_op = transaction_data['business_operation']
+
+                # Используем кэш импортера вместо прямого запроса к БД
+                if business_op not in importer._business_operation_mapping_cache:
+                    existing_mapping = db.query(BusinessOperationMapping).filter(
+                        BusinessOperationMapping.business_operation == business_op
+                    ).first()
+
+                    if not existing_mapping:
+                        stub_mapping = BusinessOperationMapping(
+                            business_operation=business_op,
+                            category_id=None,
+                            priority=0,
+                            confidence=0.0,
+                            notes="Авто-создано при импорте из 1С",
+                            is_active=False
+                        )
+                        db.add(stub_mapping)
+                        db.flush()
+
+                    # Добавляем в кэш
+                    importer._business_operation_mapping_cache.add(business_op)
+
+            if existing:
+                # Update existing transaction with parsed data
+                # Защищенные поля - не перезаписываем пользовательские изменения
+                protected_fields = {
+                    'status', 'category_id', 'suggested_category_id',
+                    'category_confidence', 'approved_by', 'approved_at',
+                    'expense_id', 'notes'
+                }
+
+                for key, value in transaction_data.items():
+                    if key in protected_fields:
+                        # Для notes - обновляем только если пусто
+                        if key == 'notes' and not getattr(existing, key, None):
+                            setattr(existing, key, value)
+                        continue
+                    if hasattr(existing, key) and value is not None:
+                        setattr(existing, key, value)
+
+                logger.debug(f"Updated transaction {ref_key}")
+                return "updated"
+            else:
+                # Create new transaction
+                transaction_data['external_id_1c'] = ref_key
+                transaction_data['transaction_type'] = tx_type
+                transaction_data['payment_source'] = payment_source
+                transaction_data['import_source'] = 'ODATA_1C'
+                transaction_data['imported_at'] = datetime.utcnow()
+                transaction_data['is_active'] = True
+
+                transaction = BankTransaction(**transaction_data)
+
+                # Apply AI classification if enabled
+                if importer.auto_classify and importer.classifier:
+                    try:
+                        category_id, confidence, reasoning = importer.classifier.classify(
+                            payment_purpose=transaction.payment_purpose,
+                            counterparty_name=transaction.counterparty_name,
+                            counterparty_inn=transaction.counterparty_inn,
+                            amount=transaction.amount,
+                            transaction_type=transaction.transaction_type,
+                            business_operation=transaction.business_operation
+                        )
+                        if category_id:
+                            if confidence >= 0.9:
+                                transaction.category_id = category_id
+                                transaction.category_confidence = Decimal(str(confidence))
+                                transaction.status = BankTransactionStatusEnum.CATEGORIZED
+                            else:
+                                transaction.suggested_category_id = category_id
+                                transaction.category_confidence = Decimal(str(confidence))
+                                transaction.status = BankTransactionStatusEnum.NEEDS_REVIEW
+                    except Exception as e:
+                        logger.warning(f"Classification failed for {ref_key}: {e}")
+
+                db.add(transaction)
+                logger.debug(f"Created transaction {ref_key}")
+                return "created"
+
+        except Exception as e:
+            # ВАЖНО: НЕ делаем rollback и НЕ пробрасываем исключение
+            # Это блокирует обработку всего батча
+            # Вместо этого логируем ошибку и возвращаем "skipped"
+            logger.error(f"Error processing document {ref_key} ({doc_type}): {e}", exc_info=True)
             return "skipped"
 
-        # Determine transaction type
-        if doc_type in ("receipt", "cash_receipt"):
-            tx_type = BankTransactionTypeEnum.CREDIT
-        else:
-            tx_type = BankTransactionTypeEnum.DEBIT
+    @classmethod
+    def start_organizations_sync(cls, user_id: int = None) -> str:
+        """Start async organizations sync."""
+        task_id = task_manager.create_task(
+            task_type=cls.TASK_TYPE_ORGANIZATIONS,
+            total=0,
+            metadata={"user_id": user_id}
+        )
 
-        # Determine payment source
-        if doc_type in ("cash_receipt", "cash_payment"):
-            payment_source = PaymentSourceEnum.CASH
-        else:
-            payment_source = PaymentSourceEnum.BANK
+        task_manager.run_async_task(
+            task_id,
+            cls._sync_organizations_async,
+        )
 
-        # Get counterparty info
-        counterparty_name = doc.get("Контрагент") or doc.get("Плательщик") or doc.get("Получатель")
-        if isinstance(counterparty_name, dict):
-            counterparty_name = counterparty_name.get("Description", "")
+        return task_id
 
-        counterparty_inn = doc.get("ИННКонтрагента") or doc.get("ИНН")
-        payment_purpose = doc.get("НазначениеПлатежа", "")
+    @classmethod
+    async def _sync_organizations_async(cls, task_id: str) -> Dict[str, Any]:
+        """Async worker for organizations sync."""
+        db = SessionLocal()
+        try:
+            client = create_1c_client_from_env()
 
-        if existing:
-            # Update existing
-            existing.amount = amount
-            existing.transaction_date = tx_date
-            existing.counterparty_name = str(counterparty_name)[:500] if counterparty_name else None
-            existing.counterparty_inn = str(counterparty_inn)[:20] if counterparty_inn else None
-            existing.payment_purpose = str(payment_purpose)[:2000] if payment_purpose else None
-            return "updated"
-        else:
-            # Create new
-            doc_number = doc.get("Number") or doc.get("Номер") or ""
-            transaction = BankTransaction(
-                external_id_1c=ref_key,
-                document_number=str(doc_number)[:50],
-                document_date=tx_date,
-                transaction_date=tx_date,
-                amount=amount,
-                currency="RUB",
-                transaction_type=tx_type,
-                payment_source=payment_source,
-                counterparty_name=str(counterparty_name)[:500] if counterparty_name else None,
-                counterparty_inn=str(counterparty_inn)[:20] if counterparty_inn else None,
-                payment_purpose=str(payment_purpose)[:2000] if payment_purpose else None,
-                status=BankTransactionStatusEnum.NEW,
-                is_active=True,
+            task_manager.update_progress(task_id, 0, message="Подключение к 1С...")
+            is_connected, message = client.test_connection()
+            if not is_connected:
+                raise Exception(f"Не удалось подключиться к 1С: {message}")
+
+            task_manager.update_progress(task_id, 0, message="Загрузка организаций из 1С...")
+            org_docs = client.get_organizations()
+
+            result, _ = await cls._import_organizations(
+                task_id,
+                db,
+                org_docs,
+                processed_offset=0,
+                total_count=len(org_docs)
             )
-            db.add(transaction)
-            return "created"
+
+            return result
+
+        except Exception:
+            db.rollback()
+            logger.exception("Async organizations sync failed")
+            raise
+        finally:
+            db.close()
+
+    @classmethod
+    def start_categories_sync(cls, user_id: int = None) -> str:
+        """Start async categories sync."""
+        task_id = task_manager.create_task(
+            task_type=cls.TASK_TYPE_CATEGORIES,
+            total=0,
+            metadata={"user_id": user_id}
+        )
+
+        task_manager.run_async_task(
+            task_id,
+            cls._sync_categories_async,
+        )
+
+        return task_id
+
+    @classmethod
+    async def _sync_categories_async(cls, task_id: str) -> Dict[str, Any]:
+        """Async worker for categories sync."""
+        db = SessionLocal()
+        try:
+            client = create_1c_client_from_env()
+
+            task_manager.update_progress(task_id, 0, message="Подключение к 1С...")
+            is_connected, message = client.test_connection()
+            if not is_connected:
+                raise Exception(f"Не удалось подключиться к 1С: {message}")
+
+            task_manager.update_progress(task_id, 0, message="Загрузка категорий из 1С...")
+            cat_docs = client.get_cash_flow_categories()
+
+            result, _ = await cls._import_categories(
+                task_id,
+                db,
+                cat_docs,
+                processed_offset=0,
+                total_count=len(cat_docs)
+            )
+
+            return result
+
+        except Exception:
+            db.rollback()
+            logger.exception("Async categories sync failed")
+            raise
+        finally:
+            db.close()
 
     @classmethod
     def start_contractors_sync(cls, user_id: int = None) -> str:
@@ -335,11 +862,10 @@ class AsyncSyncService:
             contractors = client.get_contractors()
 
             total = len(contractors)
-            task = task_manager.get_task(task_id)
-            if task:
-                task.total = total
+            cls._set_task_total(task_id, total or 1)
 
             if total == 0:
+                task_manager.update_progress(task_id, total or 1, message="Нет контрагентов")
                 return {"success": True, "message": "Нет контрагентов", "total": 0}
 
             created = 0
@@ -414,6 +940,130 @@ class AsyncSyncService:
 
         except Exception as e:
             db.rollback()
+            raise
+        finally:
+            db.close()
+
+    @classmethod
+    def start_full_sync(
+        cls,
+        date_from: date,
+        date_to: date,
+        auto_classify: bool = True,
+        user_id: int = None
+    ) -> str:
+        """Start full async sync (organizations, categories, transactions)."""
+        task_id = task_manager.create_task(
+            task_type=cls.TASK_TYPE_FULL_SYNC,
+            total=0,
+            metadata={
+                "date_from": date_from.isoformat(),
+                "date_to": date_to.isoformat(),
+                "auto_classify": auto_classify,
+                "user_id": user_id,
+            }
+        )
+
+        task_manager.run_async_task(
+            task_id,
+            cls._sync_full_async,
+            date_from=date_from,
+            date_to=date_to,
+            auto_classify=auto_classify
+        )
+
+        return task_id
+
+    @classmethod
+    async def _sync_full_async(
+        cls,
+        task_id: str,
+        date_from: date,
+        date_to: date,
+        auto_classify: bool
+    ) -> Dict[str, Any]:
+        """Async worker for full sync."""
+        db = SessionLocal()
+        try:
+            client = create_1c_client_from_env()
+            task_manager.update_progress(task_id, 0, message="Подключение к 1С...")
+
+            is_connected, message = client.test_connection()
+            if not is_connected:
+                raise Exception(f"Не удалось подключиться к 1С: {message}")
+
+            task_manager.update_progress(task_id, 0, message="Загрузка данных из 1С...")
+            org_docs = client.get_organizations()
+            cat_docs = client.get_cash_flow_categories()
+            bank_docs = cls._fetch_bank_documents(client, date_from, date_to)
+
+            total_count = len(org_docs) + len(cat_docs) + len(bank_docs)
+            total_for_progress = max(total_count, 1)
+            cls._set_task_total(task_id, total_for_progress)
+
+            if total_count == 0:
+                task_manager.update_progress(task_id, total_for_progress, message="Нет данных для синхронизации")
+                return {
+                    "success": True,
+                    "message": "Нет данных для синхронизации",
+                    "organizations": {"total": 0, "created": 0, "updated": 0},
+                    "categories": {"total": 0, "created": 0, "updated": 0},
+                    "transactions": {
+                        "total_fetched": 0,
+                        "total_created": 0,
+                        "total_updated": 0,
+                        "total_skipped": 0,
+                        "errors": [],
+                    },
+                }
+
+            processed = 0
+
+            org_result, processed = await cls._import_organizations(
+                task_id,
+                db,
+                org_docs,
+                processed_offset=processed,
+                total_count=total_for_progress
+            )
+
+            cat_result, processed = await cls._import_categories(
+                task_id,
+                db,
+                cat_docs,
+                processed_offset=processed,
+                total_count=total_for_progress
+            )
+
+            importer = BankTransaction1CImporter(
+                db=db,
+                odata_client=client,
+                auto_classify=auto_classify
+            )
+
+            bank_result, processed = await cls._import_bank_documents(
+                task_id,
+                db,
+                importer,
+                bank_docs,
+                processed_offset=processed,
+                total_count=total_for_progress
+            )
+
+            final_message = "Полная синхронизация завершена"
+            task_manager.update_progress(task_id, processed, message=final_message)
+
+            return {
+                "success": True,
+                "message": final_message,
+                "organizations": org_result,
+                "categories": cat_result,
+                "transactions": bank_result,
+            }
+
+        except Exception:
+            db.rollback()
+            logger.exception("Full sync failed")
             raise
         finally:
             db.close()

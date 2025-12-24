@@ -15,9 +15,6 @@ import {
   Popconfirm,
   InputNumber,
   Progress,
-  Row,
-  Col,
-  Statistic,
 } from 'antd'
 import {
   PlusOutlined,
@@ -190,10 +187,6 @@ export default function MappingsPage() {
     return matchesSearch && matchesStatus
   })
 
-  // Statistics
-  const activeCount = mappings.filter((m) => m.is_active).length
-  const inactiveCount = mappings.filter((m) => !m.is_active).length
-
   const columns: ColumnsType<BusinessOperationMapping> = [
     {
       title: 'Хозяйственная операция',
@@ -272,33 +265,6 @@ export default function MappingsPage() {
       <Title level={3} style={{ marginBottom: 16 }}>
         Маппинг операций
       </Title>
-
-      {/* Statistics */}
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
-          <Card>
-            <Statistic title="Всего маппингов" value={mappings.length} />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card>
-            <Statistic
-              title="Активных"
-              value={activeCount}
-              valueStyle={{ color: '#52c41a' }}
-            />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card>
-            <Statistic
-              title="Неактивных"
-              value={inactiveCount}
-              valueStyle={{ color: '#8c8c8c' }}
-            />
-          </Card>
-        </Col>
-      </Row>
 
       <Card>
         <Space wrap style={{ marginBottom: 16 }}>

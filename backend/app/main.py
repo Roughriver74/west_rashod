@@ -3,7 +3,7 @@ West Rashod - Bank Transactions Microservice
 FastAPI application entry point
 """
 import logging
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -44,9 +44,25 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     print("Starting West Rashod API...")
+
+    # Start sync scheduler
+    from app.services.sync_scheduler import sync_scheduler
+    sync_scheduler.start()
+    logger.info("Sync scheduler started")
+
     yield
+
     # Shutdown
     print("Shutting down West Rashod API...")
+
+    # Stop sync scheduler
+    sync_scheduler.stop()
+    logger.info("Sync scheduler stopped")
+
+    # Shutdown task manager
+    from app.services.background_tasks import task_manager
+    task_manager.shutdown()
+    logger.info("Task manager shut down")
 
 
 # Create FastAPI app
@@ -78,13 +94,52 @@ async def global_exception_handler(request: Request, exc: Exception):
         print(f"Unhandled exception: {exc}")
         traceback.print_exc()
 
-    return JSONResponse(
+    # Get the origin from the request
+    origin = request.headers.get("origin")
+
+    # Create response
+    response = JSONResponse(
         status_code=500,
         content={
             "detail": "Internal server error",
             "error": str(exc) if settings.DEBUG else "An error occurred"
         }
     )
+
+    # Add CORS headers explicitly if origin is in allowed list
+    if origin and origin in settings.cors_origins_list:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+
+    return response
+
+
+# HTTPException handler to ensure CORS headers on HTTP errors (403, 404, etc.)
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions with proper CORS headers."""
+    if settings.DEBUG:
+        print(f"HTTP exception: {exc.status_code} - {exc.detail}")
+
+    # Get the origin from the request
+    origin = request.headers.get("origin")
+
+    # Create response
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
+    # Add CORS headers explicitly if origin is in allowed list
+    if origin and origin in settings.cors_origins_list:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+
+    return response
 
 
 # Health check

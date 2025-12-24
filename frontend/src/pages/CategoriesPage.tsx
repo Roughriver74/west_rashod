@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Card,
   Table,
@@ -13,24 +13,60 @@ import {
   Form,
   Switch,
   Popconfirm,
+  TreeSelect,
 } from 'antd'
 import {
   PlusOutlined,
   SearchOutlined,
   EditOutlined,
   DeleteOutlined,
+  FolderOutlined,
+  FileOutlined,
+  SyncOutlined,
 } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  getCategories,
+  getCategoryTree,
   createCategory,
   updateCategory,
   deleteCategory,
   Category,
+  CategoryTreeNode,
 } from '../api/categories'
+import apiClient from '../api/client'
 
-const { Title } = Typography
+const { Title, Text } = Typography
+
+// Конвертируем дерево для TreeSelect
+const convertToTreeSelectData = (nodes: CategoryTreeNode[]): any[] => {
+  return nodes.map(node => ({
+    value: node.id,
+    title: node.name,
+    disabled: false,
+    children: node.children?.length > 0 ? convertToTreeSelectData(node.children) : undefined,
+  }))
+}
+
+// Фильтруем дерево по поисковому запросу
+const filterTree = (nodes: CategoryTreeNode[], search: string, typeFilter?: string): CategoryTreeNode[] => {
+  const result: CategoryTreeNode[] = []
+
+  for (const node of nodes) {
+    const matchesSearch = !search || node.name.toLowerCase().includes(search.toLowerCase())
+    const matchesType = !typeFilter || node.type === typeFilter
+    const filteredChildren = node.children?.length > 0 ? filterTree(node.children, search, typeFilter) : []
+
+    if ((matchesSearch && matchesType) || filteredChildren.length > 0) {
+      result.push({
+        ...node,
+        children: filteredChildren,
+      })
+    }
+  }
+
+  return result
+}
 
 export default function CategoriesPage() {
   const queryClient = useQueryClient()
@@ -39,11 +75,30 @@ export default function CategoriesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [form] = Form.useForm()
+  const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([])
 
-  // Fetch categories
-  const { data: categories = [], isLoading } = useQuery({
-    queryKey: ['categories'],
-    queryFn: () => getCategories({}),
+  // Fetch category tree
+  const { data: categoryTree = [], isLoading } = useQuery({
+    queryKey: ['categoryTree'],
+    queryFn: () => getCategoryTree({}),
+  })
+
+  // Sync mutation
+  const syncMutation = useMutation({
+    mutationFn: () => apiClient.post('/sync-1c/categories/sync'),
+    onSuccess: (response) => {
+      const data = response.data
+      if (data.success) {
+        message.success(data.message)
+      } else {
+        message.error(data.message)
+      }
+      queryClient.invalidateQueries({ queryKey: ['categoryTree'] })
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+    },
+    onError: () => {
+      message.error('Ошибка синхронизации категорий')
+    },
   })
 
   // Create mutation
@@ -51,6 +106,7 @@ export default function CategoriesPage() {
     mutationFn: createCategory,
     onSuccess: () => {
       message.success('Категория создана')
+      queryClient.invalidateQueries({ queryKey: ['categoryTree'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       setIsModalOpen(false)
       form.resetFields()
@@ -66,6 +122,7 @@ export default function CategoriesPage() {
       updateCategory(id, data),
     onSuccess: () => {
       message.success('Категория обновлена')
+      queryClient.invalidateQueries({ queryKey: ['categoryTree'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       setIsModalOpen(false)
       setEditingCategory(null)
@@ -81,6 +138,7 @@ export default function CategoriesPage() {
     mutationFn: deleteCategory,
     onSuccess: () => {
       message.success('Категория удалена')
+      queryClient.invalidateQueries({ queryKey: ['categoryTree'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
     },
     onError: () => {
@@ -88,42 +146,87 @@ export default function CategoriesPage() {
     },
   })
 
-  const handleSubmit = (values: unknown) => {
+  const handleSubmit = (values: any) => {
+    const data = {
+      ...values,
+      parent_id: values.parent_id || null,
+    }
     if (editingCategory) {
-      updateMutation.mutate({ id: editingCategory.id, data: values as Partial<Category> })
+      updateMutation.mutate({ id: editingCategory.id, data })
     } else {
-      createMutation.mutate(values as Category)
+      createMutation.mutate(data)
     }
   }
 
   const handleEdit = (record: Category) => {
     setEditingCategory(record)
-    form.setFieldsValue(record)
+    form.setFieldsValue({
+      ...record,
+      parent_id: record.parent_id || undefined,
+    })
     setIsModalOpen(true)
   }
 
-  const handleAdd = () => {
+  const handleAdd = (parentId?: number) => {
     setEditingCategory(null)
     form.resetFields()
-    form.setFieldsValue({ is_active: true, type: 'OPEX' })
+    form.setFieldsValue({
+      is_active: true,
+      type: 'OPEX',
+      is_folder: false,
+      parent_id: parentId || undefined,
+    })
     setIsModalOpen(true)
   }
 
-  const filteredCategories = categories.filter((cat) => {
-    const matchesSearch =
-      !searchText ||
-      cat.name.toLowerCase().includes(searchText.toLowerCase()) ||
-      cat.description?.toLowerCase().includes(searchText.toLowerCase())
-    const matchesType = !typeFilter || cat.type === typeFilter
-    return matchesSearch && matchesType
-  })
+  // Фильтрованное дерево
+  const filteredTree = useMemo(() => {
+    return filterTree(categoryTree, searchText, typeFilter)
+  }, [categoryTree, searchText, typeFilter])
 
-  const columns: ColumnsType<Category> = [
+  // TreeSelect data для выбора родителя
+  const parentTreeData = useMemo(() => {
+    return convertToTreeSelectData(categoryTree)
+  }, [categoryTree])
+
+  // Раскрыть всё при поиске
+  const allKeys = useMemo(() => {
+    const keys: number[] = []
+    const extractKeys = (nodes: CategoryTreeNode[]) => {
+      for (const node of nodes) {
+        if (node.children?.length > 0) {
+          keys.push(node.id)
+          extractKeys(node.children)
+        }
+      }
+    }
+    extractKeys(categoryTree)
+    return keys
+  }, [categoryTree])
+
+  // При поиске раскрываем все
+  const effectiveExpandedKeys = searchText ? allKeys : expandedRowKeys
+
+  const columns: ColumnsType<CategoryTreeNode> = [
     {
       title: 'Название',
       dataIndex: 'name',
       key: 'name',
-      sorter: (a, b) => a.name.localeCompare(b.name),
+      render: (name, record) => (
+        <Space>
+          {record.is_folder ? (
+            <FolderOutlined style={{ color: '#faad14' }} />
+          ) : (
+            <FileOutlined style={{ color: '#1890ff' }} />
+          )}
+          <span style={{ fontWeight: record.is_folder ? 600 : 400 }}>{name}</span>
+          {record.code_1c && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              [{record.code_1c}]
+            </Text>
+          )}
+        </Space>
+      ),
     },
     {
       title: 'Тип',
@@ -138,8 +241,9 @@ export default function CategoriesPage() {
       title: 'Описание',
       dataIndex: 'description',
       key: 'description',
+      width: 250,
       ellipsis: true,
-      render: (text) => text || '-',
+      render: (text) => text || <Text type="secondary">—</Text>,
     },
     {
       title: 'Статус',
@@ -155,21 +259,32 @@ export default function CategoriesPage() {
     {
       title: 'Действия',
       key: 'actions',
-      width: 120,
+      width: 150,
       render: (_, record) => (
-        <Space>
+        <Space size="small">
+          {record.is_folder && (
+            <Button
+              type="link"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={() => handleAdd(record.id)}
+              title="Добавить подкатегорию"
+            />
+          )}
           <Button
             type="link"
+            size="small"
             icon={<EditOutlined />}
             onClick={() => handleEdit(record)}
           />
           <Popconfirm
             title="Удалить категорию?"
+            description={record.children?.length > 0 ? "У категории есть подкатегории!" : undefined}
             onConfirm={() => deleteMutation.mutate(record.id)}
             okText="Да"
             cancelText="Нет"
           >
-            <Button type="link" danger icon={<DeleteOutlined />} />
+            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
       ),
@@ -190,6 +305,7 @@ export default function CategoriesPage() {
             style={{ width: 250 }}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
+            allowClear
           />
           <Select
             placeholder="Тип"
@@ -202,21 +318,30 @@ export default function CategoriesPage() {
               { value: 'CAPEX', label: 'CAPEX' },
             ]}
           />
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => handleAdd()}>
             Добавить
+          </Button>
+          <Button
+            icon={<SyncOutlined spin={syncMutation.isPending} />}
+            onClick={() => syncMutation.mutate()}
+            loading={syncMutation.isPending}
+          >
+            Синхронизировать из 1С
           </Button>
         </Space>
 
         <Table
           rowKey="id"
           columns={columns}
-          dataSource={filteredCategories}
+          dataSource={filteredTree}
           loading={isLoading}
-          pagination={{
-            pageSize: 20,
-            showSizeChanger: true,
-            showTotal: (total) => `Всего: ${total}`,
+          expandable={{
+            expandedRowKeys: effectiveExpandedKeys as number[],
+            onExpandedRowsChange: (keys) => setExpandedRowKeys(keys as React.Key[]),
+            indentSize: 24,
           }}
+          pagination={false}
+          size="middle"
         />
       </Card>
 
@@ -229,6 +354,7 @@ export default function CategoriesPage() {
           form.resetFields()
         }}
         footer={null}
+        width={500}
       >
         <Form form={form} layout="vertical" onFinish={handleSubmit}>
           <Form.Item
@@ -237,6 +363,20 @@ export default function CategoriesPage() {
             rules={[{ required: true, message: 'Введите название' }]}
           >
             <Input />
+          </Form.Item>
+
+          <Form.Item
+            name="parent_id"
+            label="Родительская категория"
+          >
+            <TreeSelect
+              placeholder="Выберите родителя (опционально)"
+              allowClear
+              treeDefaultExpandAll
+              treeData={parentTreeData}
+              showSearch
+              treeNodeFilterProp="title"
+            />
           </Form.Item>
 
           <Form.Item
@@ -256,11 +396,17 @@ export default function CategoriesPage() {
             <Input.TextArea rows={3} />
           </Form.Item>
 
-          <Form.Item name="is_active" label="Активна" valuePropName="checked">
-            <Switch />
-          </Form.Item>
+          <Space style={{ width: '100%' }} size="large">
+            <Form.Item name="is_folder" label="Это папка (группа)" valuePropName="checked">
+              <Switch />
+            </Form.Item>
 
-          <Form.Item>
+            <Form.Item name="is_active" label="Активна" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+          </Space>
+
+          <Form.Item style={{ marginBottom: 0, marginTop: 16 }}>
             <Space>
               <Button
                 type="primary"

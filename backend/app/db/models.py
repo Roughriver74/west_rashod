@@ -91,6 +91,23 @@ class ExpensePriorityEnum(str, enum.Enum):
     URGENT = "URGENT"
 
 
+class CategorizationRuleTypeEnum(str, enum.Enum):
+    """Categorization rule types."""
+    COUNTERPARTY_INN = "COUNTERPARTY_INN"         # Match by contractor INN
+    COUNTERPARTY_NAME = "COUNTERPARTY_NAME"       # Match by contractor name
+    BUSINESS_OPERATION = "BUSINESS_OPERATION"     # Match by 1C business operation
+    KEYWORD = "KEYWORD"                           # Match by keyword in payment purpose
+
+
+class BackgroundTaskStatusEnum(str, enum.Enum):
+    """Background task statuses."""
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 # ============== MODELS ==============
 
 class Organization(Base):
@@ -291,6 +308,10 @@ class BankTransaction(Base):
     transaction_type = Column(Enum(BankTransactionTypeEnum), nullable=False,
                              default=BankTransactionTypeEnum.DEBIT, index=True)
 
+    # VAT (НДС)
+    vat_amount = Column(Numeric(15, 2), nullable=True)  # Сумма НДС
+    vat_rate = Column(Numeric(5, 2), nullable=True)  # Ставка НДС в процентах (0, 10, 20 и т.д.)
+
     # Counterparty
     counterparty_name = Column(String(500), nullable=True)
     counterparty_inn = Column(String(12), nullable=True, index=True)
@@ -309,6 +330,10 @@ class BankTransaction(Base):
     # Our organization
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     account_number = Column(String(20), nullable=True, index=True)
+
+    # Our bank info (where our account is opened)
+    our_bank_name = Column(String(500), nullable=True)
+    our_bank_bik = Column(String(20), nullable=True, index=True)
 
     # Document info
     document_number = Column(String(50), nullable=True, index=True)
@@ -413,6 +438,44 @@ class BusinessOperationMapping(Base):
     )
 
 
+class CategorizationRule(Base):
+    """Categorization rules for automatic transaction classification."""
+    __tablename__ = "categorization_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Rule type
+    rule_type = Column(Enum(CategorizationRuleTypeEnum), nullable=False, index=True)
+
+    # Match criteria (only one should be set based on rule_type)
+    counterparty_inn = Column(String(20), nullable=True, index=True)
+    counterparty_name = Column(String(500), nullable=True, index=True)
+    business_operation = Column(String(100), nullable=True, index=True)
+    keyword = Column(String(255), nullable=True, index=True)
+
+    # Target category
+    category_id = Column(Integer, ForeignKey("budget_categories.id"), nullable=False, index=True)
+
+    # Priority and confidence
+    priority = Column(Integer, default=10, nullable=False)  # Higher = more important
+    confidence = Column(Numeric(5, 4), default=0.95, nullable=False)  # 0.0000 - 1.0000
+
+    # Status
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+
+    # Notes
+    notes = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Relationships
+    category_rel = relationship("BudgetCategory")
+    created_by_user = relationship("User")
+
+
 class SyncSettings(Base):
     """Settings for automatic 1C synchronization (singleton table)."""
     __tablename__ = "sync_settings"
@@ -442,3 +505,39 @@ class SyncSettings(Base):
 
     # Relationships
     updated_by_rel = relationship("User", foreign_keys=[updated_by])
+
+
+class BackgroundTask(Base):
+    """Background tasks stored in database for persistence across restarts."""
+    __tablename__ = "background_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String(36), unique=True, nullable=False, index=True)  # UUID
+    task_type = Column(String(100), nullable=False, index=True)
+    status = Column(Enum(BackgroundTaskStatusEnum), nullable=False, default=BackgroundTaskStatusEnum.PENDING, index=True)
+
+    # Progress tracking
+    progress = Column(Integer, default=0, nullable=False)
+    total = Column(Integer, default=0, nullable=False)
+    processed = Column(Integer, default=0, nullable=False)
+    message = Column(Text, nullable=True)
+
+    # Result/Error
+    result = Column(Text, nullable=True)  # JSON serialized
+    error = Column(Text, nullable=True)
+
+    # Extra data (JSON serialized)
+    extra_data = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # User who started the task
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_rel = relationship("User")
+
+    __table_args__ = (
+        Index('ix_background_tasks_status_created', 'status', 'created_at'),
+    )

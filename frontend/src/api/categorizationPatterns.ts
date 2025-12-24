@@ -18,6 +18,14 @@ export interface BusinessOperationPattern {
   confidence_estimate: number
 }
 
+export interface PaymentPurposeKeywordPattern {
+  keyword: string
+  category_id: number
+  category_name: string
+  transaction_count: number
+  confidence_estimate: number
+}
+
 export interface CategorizationStats {
   total_transactions: number
   auto_categorized: number
@@ -42,6 +50,15 @@ export const getBusinessOperationPatterns = async (params?: {
   min_transactions?: number
 }): Promise<BusinessOperationPattern[]> => {
   const response = await apiClient.get('/categorization-patterns/business-operations', { params })
+  return response.data
+}
+
+export const getPaymentPurposeKeywordPatterns = async (params?: {
+  limit?: number
+  min_transactions?: number
+  min_keyword_length?: number
+}): Promise<PaymentPurposeKeywordPattern[]> => {
+  const response = await apiClient.get('/categorization-patterns/payment-purpose-keywords', { params })
   return response.data
 }
 

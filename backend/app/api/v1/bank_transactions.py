@@ -6,13 +6,14 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, and_, or_, extract
+from sqlalchemy import func, and_, or_, extract, case
 from pydantic import BaseModel
 
 from app.db.session import get_db
 from app.db.models import (
     BankTransaction, BudgetCategory, Organization, User, UserRoleEnum,
-    BankTransactionTypeEnum, BankTransactionStatusEnum
+    BankTransactionTypeEnum, BankTransactionStatusEnum,
+    CategorizationRule, CategorizationRuleTypeEnum
 )
 from app.schemas.bank_transaction import (
     BankTransactionCreate, BankTransactionUpdate, BankTransactionResponse,
@@ -26,7 +27,10 @@ from app.schemas.bank_transaction import (
     ActivityHeatmapPoint, StatusTimelinePoint, ConfidenceScatterPoint,
     RegionalData, SourceDistribution, RegularPaymentSummary, ExhibitionData,
     RegularPaymentPattern, RegularPaymentPatternList,
-    AccountGrouping, AccountGroupingList
+    AccountGrouping, AccountGroupingList,
+    RuleSuggestion, RuleSuggestionsResponse,
+    CategorizationWithSuggestionsResponse, BulkCategorizationWithSuggestionsResponse,
+    CreateRuleFromSuggestionRequest
 )
 from app.utils.auth import get_current_active_user
 from app.services.transaction_classifier import TransactionClassifier
@@ -35,9 +39,248 @@ from app.services.bank_transaction_import import BankTransactionImporter
 router = APIRouter(prefix="/bank-transactions", tags=["Bank Transactions"])
 
 
+# ==================== Helper Functions ====================
+
+def analyze_rule_suggestions(
+    transactions: List[BankTransaction],
+    category_id: int,
+    db: Session
+) -> RuleSuggestionsResponse:
+    """
+    Анализирует транзакции и возвращает предложения для создания правил.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    logger.info(f"🔍 Analyzing {len(transactions)} transactions for rule suggestions")
+
+    # Получаем имя категории
+    category = db.query(BudgetCategory).filter(BudgetCategory.id == category_id).first()
+    category_name = category.name if category else "Неизвестная категория"
+
+    suggestions_list = []
+
+    # Собираем статистику по ИНН, названиям и операциям
+    inn_counter = {}
+    name_counter = {}
+    operation_counter = {}
+
+    for tx in transactions:
+        if tx.counterparty_inn:
+            inn_counter[tx.counterparty_inn] = inn_counter.get(tx.counterparty_inn, 0) + 1
+        if tx.counterparty_name:
+            name_counter[tx.counterparty_name] = name_counter.get(tx.counterparty_name, 0) + 1
+        if tx.business_operation:
+            operation_counter[tx.business_operation] = operation_counter.get(tx.business_operation, 0) + 1
+
+    logger.info(f"📊 Stats: INNs={len(inn_counter)}, Names={len(name_counter)}, Operations={len(operation_counter)}")
+
+    # Анализируем ИНН
+    if inn_counter:
+        most_common_inn = max(inn_counter.items(), key=lambda x: x[1])
+
+        # Проверяем, нет ли уже такого правила
+        existing_rule = db.query(CategorizationRule).filter(
+            CategorizationRule.rule_type == CategorizationRuleTypeEnum.COUNTERPARTY_INN,
+            CategorizationRule.counterparty_inn == most_common_inn[0],
+            CategorizationRule.category_id == category_id,
+            CategorizationRule.is_active == True
+        ).first()
+
+        # Найдём имя контрагента для этого ИНН
+        counterparty_name = "Неизвестно"
+        for tx in transactions:
+            if tx.counterparty_inn == most_common_inn[0] and tx.counterparty_name:
+                counterparty_name = tx.counterparty_name
+                break
+
+        # Считаем, сколько существующих транзакций без категории подходят под это правило
+        matching_count = db.query(BankTransaction).filter(
+            BankTransaction.is_active == True,
+            BankTransaction.counterparty_inn == most_common_inn[0],
+            or_(
+                BankTransaction.category_id == None,
+                BankTransaction.status == BankTransactionStatusEnum.NEEDS_REVIEW
+            )
+        ).count()
+
+        suggestions_list.append(RuleSuggestion(
+            rule_type="COUNTERPARTY_INN",
+            match_value=most_common_inn[0],
+            transaction_count=most_common_inn[1],
+            description=f"По ИНН контрагента: {counterparty_name} ({most_common_inn[0]})",
+            can_create=not existing_rule,
+            matching_existing_count=matching_count
+        ))
+
+    # Анализируем название контрагента
+    if name_counter:
+        most_common_name = max(name_counter.items(), key=lambda x: x[1])
+
+        existing_rule = db.query(CategorizationRule).filter(
+            CategorizationRule.rule_type == CategorizationRuleTypeEnum.COUNTERPARTY_NAME,
+            CategorizationRule.counterparty_name == most_common_name[0],
+            CategorizationRule.category_id == category_id,
+            CategorizationRule.is_active == True
+        ).first()
+
+        # Считаем подходящие транзакции
+        matching_count = db.query(BankTransaction).filter(
+            BankTransaction.is_active == True,
+            BankTransaction.counterparty_name == most_common_name[0],
+            or_(
+                BankTransaction.category_id == None,
+                BankTransaction.status == BankTransactionStatusEnum.NEEDS_REVIEW
+            )
+        ).count()
+
+        suggestions_list.append(RuleSuggestion(
+            rule_type="COUNTERPARTY_NAME",
+            match_value=most_common_name[0],
+            transaction_count=most_common_name[1],
+            description=f"По названию контрагента: {most_common_name[0]}",
+            can_create=not existing_rule,
+            matching_existing_count=matching_count
+        ))
+
+    # Анализируем хозяйственную операцию
+    if operation_counter:
+        most_common_operation = max(operation_counter.items(), key=lambda x: x[1])
+
+        existing_rule = db.query(CategorizationRule).filter(
+            CategorizationRule.rule_type == CategorizationRuleTypeEnum.BUSINESS_OPERATION,
+            CategorizationRule.business_operation == most_common_operation[0],
+            CategorizationRule.category_id == category_id,
+            CategorizationRule.is_active == True
+        ).first()
+
+        # Считаем подходящие транзакции
+        matching_count = db.query(BankTransaction).filter(
+            BankTransaction.is_active == True,
+            BankTransaction.business_operation == most_common_operation[0],
+            or_(
+                BankTransaction.category_id == None,
+                BankTransaction.status == BankTransactionStatusEnum.NEEDS_REVIEW
+            )
+        ).count()
+
+        suggestions_list.append(RuleSuggestion(
+            rule_type="BUSINESS_OPERATION",
+            match_value=most_common_operation[0],
+            transaction_count=most_common_operation[1],
+            description=f"По хозяйственной операции: {most_common_operation[0]}",
+            can_create=not existing_rule,
+            matching_existing_count=matching_count
+        ))
+
+    # Анализируем ключевые слова из назначения платежа
+    stop_words = {
+        'для', 'при', 'или', 'без', 'под', 'над', 'перед', 'после',
+        'через', 'между', 'среди', 'вместо', 'кроме', 'около', 'вдоль',
+        'оплата', 'плата', 'платеж', 'счет', 'счёт', 'счету', 'договор',
+        'договору', 'номер', 'дата', 'период', 'услуги', 'услуг',
+        'работы', 'работ', 'товар', 'товара', 'товаров', 'включая',
+        'также', 'всего', 'итого', 'сумма', 'сумму', 'рублей', 'рубль',
+        'копеек', 'копейка', 'безналичный', 'наличный', 'перевод',
+        'перечисление', 'возврат', 'аванс', 'предоплата', 'доплата',
+        'числе', 'число', 'включительно',
+    }
+
+    keyword_counter = {}
+    for tx in transactions:
+        if tx.payment_purpose:
+            words = tx.payment_purpose.lower().split()
+            for word in words:
+                clean_word = word.strip('.,;:!?()[]{}"\'-')
+                if len(clean_word) >= 5 and clean_word not in stop_words:
+                    keyword_counter[clean_word] = keyword_counter.get(clean_word, 0) + 1
+
+    if keyword_counter:
+        # Берём самое частое ключевое слово
+        most_common_keyword = max(keyword_counter.items(), key=lambda x: x[1])
+
+        # Проверяем только если слово встречается в большинстве транзакций (>50%)
+        if most_common_keyword[1] >= len(transactions) * 0.5:
+            existing_rule = db.query(CategorizationRule).filter(
+                CategorizationRule.rule_type == CategorizationRuleTypeEnum.KEYWORD,
+                CategorizationRule.keyword == most_common_keyword[0],
+                CategorizationRule.category_id == category_id,
+                CategorizationRule.is_active == True
+            ).first()
+
+            # Считаем подходящие транзакции (ищем ключевое слово в назначении платежа)
+            matching_count = db.query(BankTransaction).filter(
+                BankTransaction.is_active == True,
+                BankTransaction.payment_purpose.ilike(f"%{most_common_keyword[0]}%"),
+                or_(
+                    BankTransaction.category_id == None,
+                    BankTransaction.status == BankTransactionStatusEnum.NEEDS_REVIEW
+                )
+            ).count()
+
+            suggestions_list.append(RuleSuggestion(
+                rule_type="KEYWORD",
+                match_value=most_common_keyword[0],
+                transaction_count=most_common_keyword[1],
+                description=f"По ключевому слову: '{most_common_keyword[0]}'",
+                can_create=not existing_rule,
+                matching_existing_count=matching_count
+            ))
+
+    result = RuleSuggestionsResponse(
+        suggestions=suggestions_list,
+        total_transactions=len(transactions),
+        category_id=category_id,
+        category_name=category_name
+    )
+
+    logger.info(f"✅ Generated {len(suggestions_list)} rule suggestions")
+    for sugg in suggestions_list:
+        logger.info(f"   - {sugg.rule_type}: {sugg.match_value} (can_create={sugg.can_create})")
+
+    return result
+
+
+def create_categorization_rule_from_suggestion(
+    rule_type: CategorizationRuleTypeEnum,
+    match_value: str,
+    category_id: int,
+    user_id: int,
+    priority: int,
+    confidence: float,
+    db: Session
+) -> CategorizationRule:
+    """
+    Создаёт правило категоризации на основе предложения пользователя.
+    """
+    rule_data = {
+        "rule_type": rule_type,
+        "category_id": category_id,
+        "priority": priority,
+        "confidence": confidence,
+        "is_active": True,
+        "notes": f"Создано при категоризации",
+        "created_by": user_id
+    }
+
+    if rule_type == CategorizationRuleTypeEnum.COUNTERPARTY_INN:
+        rule_data["counterparty_inn"] = match_value
+    elif rule_type == CategorizationRuleTypeEnum.COUNTERPARTY_NAME:
+        rule_data["counterparty_name"] = match_value
+    elif rule_type == CategorizationRuleTypeEnum.BUSINESS_OPERATION:
+        rule_data["business_operation"] = match_value
+    elif rule_type == CategorizationRuleTypeEnum.KEYWORD:
+        rule_data["keyword"] = match_value
+
+    new_rule = CategorizationRule(**rule_data)
+    db.add(new_rule)
+    db.flush()
+    return new_rule
+
+
 # ==================== List & Stats ====================
 
-@router.get("/", response_model=List[BankTransactionResponse])
+@router.get("/", response_model=BankTransactionList)
 def get_bank_transactions(
     skip: int = 0,
     limit: int = 100,
@@ -55,27 +298,115 @@ def get_bank_transactions(
     db: Session = Depends(get_db)
 ):
     """Get bank transactions with filters."""
-    query = db.query(BankTransaction).options(
-        joinedload(BankTransaction.category_rel),
-        joinedload(BankTransaction.organization_rel),
-        joinedload(BankTransaction.suggested_category_rel)
-    ).filter(BankTransaction.is_active == True)
+    base_query = db.query(BankTransaction).filter(BankTransaction.is_active == True)
 
     # Status filter
     if status:
-        query = query.filter(BankTransaction.status == status)
+        base_query = base_query.filter(BankTransaction.status == status)
 
     # Type filter
     if transaction_type:
-        query = query.filter(BankTransaction.transaction_type == transaction_type)
+        base_query = base_query.filter(BankTransaction.transaction_type == transaction_type)
 
     # Payment source filter
     if payment_source:
-        query = query.filter(BankTransaction.payment_source == payment_source)
+        base_query = base_query.filter(BankTransaction.payment_source == payment_source)
 
-    # Account number filter
+    # Account number filter - special handling for "Не указан" (null accounts)
     if account_number:
-        query = query.filter(BankTransaction.account_number == account_number)
+        if account_number == "Не указан":
+            base_query = base_query.filter(BankTransaction.account_number.is_(None))
+        else:
+            base_query = base_query.filter(BankTransaction.account_number == account_number)
+
+    # Date range
+    if date_from:
+        base_query = base_query.filter(BankTransaction.transaction_date >= date_from)
+    if date_to:
+        base_query = base_query.filter(BankTransaction.transaction_date <= date_to)
+
+    # Category filter - special handling for null (no category)
+    if category_id is not None:
+        if category_id == 0 or str(category_id).lower() == 'null':
+            base_query = base_query.filter(BankTransaction.category_id.is_(None))
+        else:
+            base_query = base_query.filter(BankTransaction.category_id == category_id)
+
+    # Organization filter
+    if organization_id:
+        base_query = base_query.filter(BankTransaction.organization_id == organization_id)
+
+    # Unprocessed only
+    if only_unprocessed:
+        base_query = base_query.filter(BankTransaction.status.in_([
+            BankTransactionStatusEnum.NEW,
+            BankTransactionStatusEnum.NEEDS_REVIEW
+        ]))
+
+    # Search
+    if search:
+        search_term = f"%{search}%"
+        base_query = base_query.filter(
+            or_(
+                BankTransaction.counterparty_name.ilike(search_term),
+                BankTransaction.counterparty_inn.ilike(search_term),
+                BankTransaction.payment_purpose.ilike(search_term),
+                BankTransaction.document_number.ilike(search_term)
+            )
+        )
+
+    # Get total count
+    total = base_query.count()
+
+    # Order and paginate
+    query = base_query.options(
+        joinedload(BankTransaction.category_rel),
+        joinedload(BankTransaction.organization_rel),
+        joinedload(BankTransaction.suggested_category_rel)
+    ).order_by(
+        BankTransaction.transaction_date.desc(),
+        BankTransaction.id.desc()
+    ).offset(skip).limit(limit)
+
+    transactions = query.all()
+
+    # Add related names
+    result = []
+    for t in transactions:
+        t_dict = BankTransactionResponse.model_validate(t).model_dump()
+        t_dict['category_name'] = t.category_rel.name if t.category_rel else None
+        t_dict['organization_name'] = t.organization_rel.name if t.organization_rel else None
+        t_dict['suggested_category_name'] = t.suggested_category_rel.name if t.suggested_category_rel else None
+        result.append(BankTransactionResponse(**t_dict))
+
+    # Calculate pagination info
+    page = (skip // limit) + 1 if limit > 0 else 1
+    pages = (total + limit - 1) // limit if limit > 0 else 1
+
+    return BankTransactionList(
+        total=total,
+        items=result,
+        page=page,
+        page_size=limit,
+        pages=pages
+    )
+
+
+@router.get("/stats", response_model=BankTransactionStats)
+def get_stats(
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    transaction_type: Optional[BankTransactionTypeEnum] = None,
+    payment_source: Optional[str] = None,
+    account_number: Optional[str] = None,
+    category_id: Optional[int] = None,
+    organization_id: Optional[int] = None,
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get transaction statistics."""
+    query = db.query(BankTransaction).filter(BankTransaction.is_active == True)
 
     # Date range
     if date_from:
@@ -83,20 +414,31 @@ def get_bank_transactions(
     if date_to:
         query = query.filter(BankTransaction.transaction_date <= date_to)
 
-    # Category filter
-    if category_id:
-        query = query.filter(BankTransaction.category_id == category_id)
+    # Transaction type filter
+    if transaction_type:
+        query = query.filter(BankTransaction.transaction_type == transaction_type)
+
+    # Payment source filter
+    if payment_source:
+        query = query.filter(BankTransaction.payment_source == payment_source)
+
+    # Account number filter - special handling for "Не указан" (null accounts)
+    if account_number:
+        if account_number == "Не указан":
+            query = query.filter(BankTransaction.account_number.is_(None))
+        else:
+            query = query.filter(BankTransaction.account_number == account_number)
+
+    # Category filter - special handling for null (no category)
+    if category_id is not None:
+        if category_id == 0 or str(category_id).lower() == 'null':
+            query = query.filter(BankTransaction.category_id.is_(None))
+        else:
+            query = query.filter(BankTransaction.category_id == category_id)
 
     # Organization filter
     if organization_id:
         query = query.filter(BankTransaction.organization_id == organization_id)
-
-    # Unprocessed only
-    if only_unprocessed:
-        query = query.filter(BankTransaction.status.in_([
-            BankTransactionStatusEnum.NEW,
-            BankTransactionStatusEnum.NEEDS_REVIEW
-        ]))
 
     # Search
     if search:
@@ -110,58 +452,28 @@ def get_bank_transactions(
             )
         )
 
-    # Order and paginate
-    transactions = query.order_by(
-        BankTransaction.transaction_date.desc(),
-        BankTransaction.id.desc()
-    ).offset(skip).limit(limit).all()
-
-    # Add related names
-    result = []
-    for t in transactions:
-        t_dict = BankTransactionResponse.model_validate(t).model_dump()
-        t_dict['category_name'] = t.category_rel.name if t.category_rel else None
-        t_dict['organization_name'] = t.organization_rel.name if t.organization_rel else None
-        t_dict['suggested_category_name'] = t.suggested_category_rel.name if t.suggested_category_rel else None
-        result.append(BankTransactionResponse(**t_dict))
-
-    return result
-
-
-@router.get("/stats", response_model=BankTransactionStats)
-def get_stats(
-    date_from: Optional[date] = None,
-    date_to: Optional[date] = None,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    """Get transaction statistics."""
-    query = db.query(BankTransaction).filter(BankTransaction.is_active == True)
-
-    # Date range
-    if date_from:
-        query = query.filter(BankTransaction.transaction_date >= date_from)
-    if date_to:
-        query = query.filter(BankTransaction.transaction_date <= date_to)
-
     # Get counts by status
     total = query.count()
     new = query.filter(BankTransaction.status == BankTransactionStatusEnum.NEW).count()
     categorized = query.filter(BankTransaction.status == BankTransactionStatusEnum.CATEGORIZED).count()
     approved = query.filter(BankTransaction.status == BankTransactionStatusEnum.APPROVED).count()
-    needs_review = query.filter(BankTransaction.status == BankTransactionStatusEnum.NEEDS_REVIEW).count()
+    # needs_review включает как NEEDS_REVIEW, так и NEW статусы (все необработанные транзакции)
+    needs_review = query.filter(
+        BankTransaction.status.in_([
+            BankTransactionStatusEnum.NEEDS_REVIEW,
+            BankTransactionStatusEnum.NEW
+        ])
+    ).count()
     ignored = query.filter(BankTransaction.status == BankTransactionStatusEnum.IGNORED).count()
 
-    # Get totals by type
-    total_debit = db.query(func.coalesce(func.sum(BankTransaction.amount), 0)).filter(
-        BankTransaction.is_active == True,
+    # Get totals by type - use subquery for efficiency
+    total_debit = query.filter(
         BankTransaction.transaction_type == BankTransactionTypeEnum.DEBIT
-    ).scalar() or Decimal("0")
+    ).with_entities(func.coalesce(func.sum(BankTransaction.amount), 0)).scalar() or Decimal("0")
 
-    total_credit = db.query(func.coalesce(func.sum(BankTransaction.amount), 0)).filter(
-        BankTransaction.is_active == True,
+    total_credit = query.filter(
         BankTransaction.transaction_type == BankTransactionTypeEnum.CREDIT
-    ).scalar() or Decimal("0")
+    ).with_entities(func.coalesce(func.sum(BankTransaction.amount), 0)).scalar() or Decimal("0")
 
     return BankTransactionStats(
         total=total,
@@ -172,102 +484,6 @@ def get_stats(
         ignored=ignored,
         total_debit=total_debit,
         total_credit=total_credit
-    )
-
-
-@router.get("/account-grouping", response_model=AccountGroupingList)
-def get_account_grouping(
-    date_from: Optional[date] = None,
-    date_to: Optional[date] = None,
-    transaction_type: Optional[BankTransactionTypeEnum] = None,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    """Get transactions grouped by account number."""
-    # Base query
-    query = db.query(BankTransaction).options(
-        joinedload(BankTransaction.organization_rel)
-    ).filter(BankTransaction.is_active == True)
-
-    # Apply filters
-    if date_from:
-        query = query.filter(BankTransaction.transaction_date >= date_from)
-    if date_to:
-        query = query.filter(BankTransaction.transaction_date <= date_to)
-    if transaction_type:
-        query = query.filter(BankTransaction.transaction_type == transaction_type)
-
-    # Get all transactions
-    transactions = query.all()
-
-    # Group by account number
-    accounts_dict = defaultdict(lambda: {
-        'credit_count': 0,
-        'debit_count': 0,
-        'total_credit_amount': Decimal('0'),
-        'total_debit_amount': Decimal('0'),
-        'needs_processing_count': 0,
-        'approved_count': 0,
-        'organization_id': None,
-        'organization_name': None,
-        'last_transaction_date': None,
-        'total_count': 0,
-    })
-
-    for t in transactions:
-        account_key = t.account_number or 'Не указан'
-
-        accounts_dict[account_key]['total_count'] += 1
-
-        if t.transaction_type == BankTransactionTypeEnum.CREDIT:
-            accounts_dict[account_key]['credit_count'] += 1
-            accounts_dict[account_key]['total_credit_amount'] += t.amount
-        else:
-            accounts_dict[account_key]['debit_count'] += 1
-            accounts_dict[account_key]['total_debit_amount'] += t.amount
-
-        # Count by status
-        if t.status in [BankTransactionStatusEnum.NEW, BankTransactionStatusEnum.NEEDS_REVIEW]:
-            accounts_dict[account_key]['needs_processing_count'] += 1
-        elif t.status == BankTransactionStatusEnum.APPROVED:
-            accounts_dict[account_key]['approved_count'] += 1
-
-        # Set organization info
-        if t.organization_id and not accounts_dict[account_key]['organization_id']:
-            accounts_dict[account_key]['organization_id'] = t.organization_id
-            if t.organization_rel:
-                accounts_dict[account_key]['organization_name'] = t.organization_rel.name
-
-        # Track last transaction date
-        if not accounts_dict[account_key]['last_transaction_date'] or t.transaction_date > accounts_dict[account_key]['last_transaction_date']:
-            accounts_dict[account_key]['last_transaction_date'] = t.transaction_date
-
-    # Convert to list of AccountGrouping objects
-    account_groupings = []
-    for account_number, data in accounts_dict.items():
-        balance = data['total_credit_amount'] - data['total_debit_amount']
-
-        account_groupings.append(AccountGrouping(
-            account_number=account_number,
-            organization_id=data['organization_id'],
-            organization_name=data['organization_name'],
-            total_count=data['total_count'],
-            credit_count=data['credit_count'],
-            debit_count=data['debit_count'],
-            total_credit_amount=data['total_credit_amount'],
-            total_debit_amount=data['total_debit_amount'],
-            balance=balance,
-            needs_processing_count=data['needs_processing_count'],
-            approved_count=data['approved_count'],
-            last_transaction_date=data['last_transaction_date']
-        ))
-
-    # Sort by last transaction date (most recent first)
-    account_groupings.sort(key=lambda x: x.last_transaction_date or date.min, reverse=True)
-
-    return AccountGroupingList(
-        accounts=account_groupings,
-        total_accounts=len(account_groupings)
     )
 
 
@@ -371,6 +587,12 @@ def get_analytics(
             net_flow_change_percent = float((net_flow - prev_net_flow) / abs(prev_net_flow) * 100)
         transactions_change = total_count - len(prev_transactions)
 
+    # Calculate needs_review as NEW + NEEDS_REVIEW (same logic as /stats endpoint)
+    needs_review_count = (
+        status_counts.get(BankTransactionStatusEnum.NEW.value, 0) +
+        status_counts.get(BankTransactionStatusEnum.NEEDS_REVIEW.value, 0)
+    )
+
     kpis = BankTransactionKPIs(
         total_debit_amount=total_debit,
         total_credit_amount=total_credit,
@@ -383,12 +605,12 @@ def get_analytics(
         new_count=status_counts.get(BankTransactionStatusEnum.NEW.value, 0),
         categorized_count=status_counts.get(BankTransactionStatusEnum.CATEGORIZED.value, 0),
         approved_count=status_counts.get(BankTransactionStatusEnum.APPROVED.value, 0),
-        needs_review_count=status_counts.get(BankTransactionStatusEnum.NEEDS_REVIEW.value, 0),
+        needs_review_count=needs_review_count,
         ignored_count=status_counts.get(BankTransactionStatusEnum.IGNORED.value, 0),
         new_percent=float(status_counts.get(BankTransactionStatusEnum.NEW.value, 0) / total_count * 100) if total_count > 0 else 0,
         categorized_percent=float(status_counts.get(BankTransactionStatusEnum.CATEGORIZED.value, 0) / total_count * 100) if total_count > 0 else 0,
         approved_percent=float(status_counts.get(BankTransactionStatusEnum.APPROVED.value, 0) / total_count * 100) if total_count > 0 else 0,
-        needs_review_percent=float(status_counts.get(BankTransactionStatusEnum.NEEDS_REVIEW.value, 0) / total_count * 100) if total_count > 0 else 0,
+        needs_review_percent=float(needs_review_count / total_count * 100) if total_count > 0 else 0,
         ignored_percent=float(status_counts.get(BankTransactionStatusEnum.IGNORED.value, 0) / total_count * 100) if total_count > 0 else 0,
         avg_category_confidence=avg_confidence,
         auto_categorized_count=len(auto_categorized),
@@ -767,6 +989,137 @@ def get_analytics(
     )
 
 
+# ==================== Account Grouping ====================
+
+@router.get("/account-grouping", response_model=AccountGroupingList)
+def get_account_grouping(
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    transaction_type: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get transactions grouped by account number."""
+
+    # Parse enum values (handle empty strings)
+    parsed_transaction_type = None
+    parsed_status = None
+
+    if transaction_type and transaction_type.strip():
+        try:
+            parsed_transaction_type = BankTransactionTypeEnum(transaction_type)
+        except ValueError:
+            pass
+
+    if status and status.strip():
+        try:
+            parsed_status = BankTransactionStatusEnum(status)
+        except ValueError:
+            pass
+
+    # Base query
+    query = db.query(BankTransaction).filter(BankTransaction.is_active == True)
+
+    # Apply filters
+    if date_from:
+        query = query.filter(BankTransaction.transaction_date >= date_from)
+    if date_to:
+        query = query.filter(BankTransaction.transaction_date <= date_to)
+    if parsed_transaction_type:
+        query = query.filter(BankTransaction.transaction_type == parsed_transaction_type)
+    if parsed_status:
+        query = query.filter(BankTransaction.status == parsed_status)
+
+    # Group by account number, organization, and bank
+    accounts_data = db.query(
+        BankTransaction.account_number,
+        BankTransaction.organization_id,
+        BankTransaction.our_bank_name,
+        BankTransaction.our_bank_bik,
+        func.count(BankTransaction.id).label('total_count'),
+        func.sum(
+            case((BankTransaction.transaction_type == BankTransactionTypeEnum.CREDIT, 1), else_=0)
+        ).label('credit_count'),
+        func.sum(
+            case((BankTransaction.transaction_type == BankTransactionTypeEnum.DEBIT, 1), else_=0)
+        ).label('debit_count'),
+        func.sum(
+            case(
+                (BankTransaction.transaction_type == BankTransactionTypeEnum.CREDIT, BankTransaction.amount),
+                else_=0
+            )
+        ).label('total_credit_amount'),
+        func.sum(
+            case(
+                (BankTransaction.transaction_type == BankTransactionTypeEnum.DEBIT, BankTransaction.amount),
+                else_=0
+            )
+        ).label('total_debit_amount'),
+        func.sum(
+            case(
+                (BankTransaction.status.in_([BankTransactionStatusEnum.NEW, BankTransactionStatusEnum.NEEDS_REVIEW]), 1),
+                else_=0
+            )
+        ).label('needs_processing_count'),
+        func.sum(
+            case((BankTransaction.status == BankTransactionStatusEnum.APPROVED, 1), else_=0)
+        ).label('approved_count'),
+        func.max(BankTransaction.transaction_date).label('last_transaction_date')
+    ).filter(
+        BankTransaction.is_active == True
+    )
+
+    # Apply same filters to grouping query
+    if date_from:
+        accounts_data = accounts_data.filter(BankTransaction.transaction_date >= date_from)
+    if date_to:
+        accounts_data = accounts_data.filter(BankTransaction.transaction_date <= date_to)
+    if parsed_transaction_type:
+        accounts_data = accounts_data.filter(BankTransaction.transaction_type == parsed_transaction_type)
+    if parsed_status:
+        accounts_data = accounts_data.filter(BankTransaction.status == parsed_status)
+
+    accounts_data = accounts_data.group_by(
+        BankTransaction.account_number,
+        BankTransaction.organization_id,
+        BankTransaction.our_bank_name,
+        BankTransaction.our_bank_bik
+    ).order_by(func.max(BankTransaction.transaction_date).desc()).all()
+
+    # Get organization names
+    org_ids = [acc.organization_id for acc in accounts_data if acc.organization_id]
+    orgs = {}
+    if org_ids:
+        org_list = db.query(Organization).filter(Organization.id.in_(org_ids)).all()
+        orgs = {org.id: org.name for org in org_list}
+
+    # Build result
+    accounts = []
+    for acc in accounts_data:
+        accounts.append(AccountGrouping(
+            account_number=acc.account_number or "Не указан",
+            organization_id=acc.organization_id,
+            organization_name=orgs.get(acc.organization_id) if acc.organization_id else None,
+            our_bank_name=acc.our_bank_name,
+            our_bank_bik=acc.our_bank_bik,
+            total_count=acc.total_count or 0,
+            credit_count=acc.credit_count or 0,
+            debit_count=acc.debit_count or 0,
+            total_credit_amount=acc.total_credit_amount or Decimal("0"),
+            total_debit_amount=acc.total_debit_amount or Decimal("0"),
+            balance=(acc.total_credit_amount or Decimal("0")) - (acc.total_debit_amount or Decimal("0")),
+            needs_processing_count=acc.needs_processing_count or 0,
+            approved_count=acc.approved_count or 0,
+            last_transaction_date=acc.last_transaction_date
+        ))
+
+    return AccountGroupingList(
+        accounts=accounts,
+        total_accounts=len(accounts)
+    )
+
+
 # ==================== CRUD ====================
 
 @router.get("/{transaction_id}", response_model=BankTransactionResponse)
@@ -849,7 +1202,7 @@ def delete_transaction(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Soft delete transaction."""
+    """Hard delete transaction (physically removes from database)."""
     transaction = db.query(BankTransaction).filter(
         BankTransaction.id == transaction_id
     ).first()
@@ -860,7 +1213,8 @@ def delete_transaction(
             detail="Transaction not found"
         )
 
-    transaction.is_active = False
+    # Physical delete from database
+    db.delete(transaction)
     db.commit()
 
     return {"message": "Transaction deleted"}
@@ -872,7 +1226,7 @@ def bulk_delete_transactions(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Bulk delete transactions (ADMIN and MANAGER only)."""
+    """Bulk delete transactions - physically removes from database (ADMIN and MANAGER only)."""
     if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -890,10 +1244,10 @@ def bulk_delete_transactions(
             detail="No transactions found"
         )
 
-    # Soft delete all
+    # Physical delete all
     deleted_count = 0
     for tx in transactions:
-        tx.is_active = False
+        db.delete(tx)
         deleted_count += 1
 
     db.commit()
@@ -901,16 +1255,101 @@ def bulk_delete_transactions(
     return {"message": f"Successfully deleted {deleted_count} transactions", "deleted": deleted_count}
 
 
+@router.post("/delete-by-filter")
+def delete_by_filter(
+    status_filter: Optional[BankTransactionStatusEnum] = None,
+    transaction_type: Optional[BankTransactionTypeEnum] = None,
+    payment_source: Optional[str] = None,
+    account_number: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    search: Optional[str] = None,
+    category_id: Optional[int] = None,
+    organization_id: Optional[int] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Delete all transactions matching filters (ADMIN only)."""
+    if current_user.role != UserRoleEnum.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only ADMIN can delete transactions by filter"
+        )
+
+    # Build query with filters
+    query = db.query(BankTransaction).filter(BankTransaction.is_active == True)
+
+    # Apply filters (same as get_bank_transactions)
+    if status_filter:
+        query = query.filter(BankTransaction.status == status_filter)
+
+    if transaction_type:
+        query = query.filter(BankTransaction.transaction_type == transaction_type)
+
+    if payment_source:
+        query = query.filter(BankTransaction.payment_source == payment_source)
+
+    if account_number:
+        if account_number == "Не указан":
+            query = query.filter(BankTransaction.account_number.is_(None))
+        else:
+            query = query.filter(BankTransaction.account_number == account_number)
+
+    if date_from:
+        query = query.filter(BankTransaction.transaction_date >= date_from)
+    if date_to:
+        query = query.filter(BankTransaction.transaction_date <= date_to)
+
+    if category_id is not None:
+        if category_id == 0 or str(category_id).lower() == 'null':
+            query = query.filter(BankTransaction.category_id.is_(None))
+        else:
+            query = query.filter(BankTransaction.category_id == category_id)
+
+    if organization_id:
+        query = query.filter(BankTransaction.organization_id == organization_id)
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                BankTransaction.counterparty_name.ilike(search_term),
+                BankTransaction.counterparty_inn.ilike(search_term),
+                BankTransaction.payment_purpose.ilike(search_term),
+                BankTransaction.document_number.ilike(search_term)
+            )
+        )
+
+    # Get count before deletion
+    total_count = query.count()
+
+    if total_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No transactions found matching the filters"
+        )
+
+    # Physical delete all matching transactions
+    deleted_count = query.delete(synchronize_session=False)
+
+    db.commit()
+
+    return {
+        "message": f"Successfully deleted {deleted_count} transactions",
+        "deleted": deleted_count
+    }
+
+
 # ==================== Categorization ====================
 
-@router.put("/{transaction_id}/categorize", response_model=BankTransactionResponse)
+@router.put("/{transaction_id}/categorize", response_model=CategorizationWithSuggestionsResponse)
 def categorize_transaction(
     transaction_id: int,
     categorize_data: BankTransactionCategorize,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Assign category to transaction."""
+    """Assign category to transaction and return rule suggestions."""
     transaction = db.query(BankTransaction).filter(
         BankTransaction.id == transaction_id,
         BankTransaction.is_active == True
@@ -944,16 +1383,28 @@ def categorize_transaction(
     db.commit()
     db.refresh(transaction)
 
-    return transaction
+    # Анализируем возможность создания правил
+    rule_suggestions = analyze_rule_suggestions([transaction], categorize_data.category_id, db)
+
+    # Формируем ответ с транзакцией
+    t_dict = BankTransactionResponse.model_validate(transaction).model_dump()
+    t_dict['category_name'] = category.name
+    t_dict['organization_name'] = transaction.organization_rel.name if transaction.organization_rel else None
+    t_dict['suggested_category_name'] = transaction.suggested_category_rel.name if transaction.suggested_category_rel else None
+
+    return CategorizationWithSuggestionsResponse(
+        transaction=BankTransactionResponse(**t_dict),
+        rule_suggestions=rule_suggestions
+    )
 
 
-@router.post("/bulk-categorize")
+@router.post("/bulk-categorize", response_model=BulkCategorizationWithSuggestionsResponse)
 def bulk_categorize(
     bulk_data: BankTransactionBulkCategorize,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Bulk assign category to multiple transactions."""
+    """Bulk assign category to multiple transactions and return rule suggestions."""
     # Verify category exists
     category = db.query(BudgetCategory).filter(
         BudgetCategory.id == bulk_data.category_id
@@ -965,19 +1416,38 @@ def bulk_categorize(
             detail="Category not found"
         )
 
-    updated = db.query(BankTransaction).filter(
+    # Получаем все транзакции для обновления
+    transactions = db.query(BankTransaction).filter(
         BankTransaction.id.in_(bulk_data.transaction_ids),
         BankTransaction.is_active == True
-    ).update({
-        BankTransaction.category_id: bulk_data.category_id,
-        BankTransaction.status: BankTransactionStatusEnum.CATEGORIZED,
-        BankTransaction.reviewed_by: current_user.id,
-        BankTransaction.reviewed_at: datetime.utcnow()
-    }, synchronize_session=False)
+    ).all()
+
+    updated_count = 0
+    for transaction in transactions:
+        transaction.category_id = bulk_data.category_id
+        transaction.status = BankTransactionStatusEnum.CATEGORIZED
+        transaction.reviewed_by = current_user.id
+        transaction.reviewed_at = datetime.utcnow()
+        updated_count += 1
 
     db.commit()
 
-    return {"message": f"Updated {updated} transactions"}
+    # Анализируем возможность создания правил на основе всех транзакций
+    import logging
+    logger = logging.getLogger(__name__)
+
+    logger.info(f"🔍 Bulk categorize: {updated_count} transactions categorized")
+    rule_suggestions = analyze_rule_suggestions(transactions, bulk_data.category_id, db)
+
+    response = BulkCategorizationWithSuggestionsResponse(
+        updated_count=updated_count,
+        message=f"Категоризировано {updated_count} операций",
+        rule_suggestions=rule_suggestions
+    )
+
+    logger.info(f"📦 Returning response with {len(rule_suggestions.suggestions)} suggestions")
+
+    return response
 
 
 @router.post("/bulk-status-update")
@@ -999,6 +1469,143 @@ def bulk_status_update(
     db.commit()
 
     return {"message": f"Updated {updated} transactions"}
+
+
+@router.post("/create-rule-from-suggestion")
+def create_rule_from_suggestion(
+    request: CreateRuleFromSuggestionRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Создаёт правило категоризации на основе выбора пользователя.
+    """
+    # Проверяем, что категория существует
+    category = db.query(BudgetCategory).filter(
+        BudgetCategory.id == request.category_id
+    ).first()
+
+    if not category:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Категория с id {request.category_id} не найдена"
+        )
+
+    # Конвертируем строковый тип в enum
+    try:
+        rule_type_enum = CategorizationRuleTypeEnum(request.rule_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Неверный тип правила: {request.rule_type}"
+        )
+
+    # Проверяем, нет ли уже такого правила
+    existing_rule_query = db.query(CategorizationRule).filter(
+        CategorizationRule.rule_type == rule_type_enum,
+        CategorizationRule.category_id == request.category_id,
+        CategorizationRule.is_active == True
+    )
+
+    if rule_type_enum == CategorizationRuleTypeEnum.COUNTERPARTY_INN:
+        existing_rule_query = existing_rule_query.filter(
+            CategorizationRule.counterparty_inn == request.match_value
+        )
+    elif rule_type_enum == CategorizationRuleTypeEnum.COUNTERPARTY_NAME:
+        existing_rule_query = existing_rule_query.filter(
+            CategorizationRule.counterparty_name == request.match_value
+        )
+    elif rule_type_enum == CategorizationRuleTypeEnum.BUSINESS_OPERATION:
+        existing_rule_query = existing_rule_query.filter(
+            CategorizationRule.business_operation == request.match_value
+        )
+    elif rule_type_enum == CategorizationRuleTypeEnum.KEYWORD:
+        existing_rule_query = existing_rule_query.filter(
+            CategorizationRule.keyword == request.match_value
+        )
+
+    existing_rule = existing_rule_query.first()
+    if existing_rule:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Такое правило уже существует"
+        )
+
+    # Создаём правило
+    new_rule = create_categorization_rule_from_suggestion(
+        rule_type=rule_type_enum,
+        match_value=request.match_value,
+        category_id=request.category_id,
+        user_id=current_user.id,
+        priority=request.priority,
+        confidence=request.confidence,
+        db=db
+    )
+
+    if request.notes:
+        new_rule.notes = request.notes
+
+    db.commit()
+    db.refresh(new_rule)
+
+    # Применяем правило к существующим транзакциям, если requested
+    applied_count = 0
+    if request.apply_to_existing:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🔍 Applying rule to existing transactions...")
+
+        # Формируем запрос для поиска подходящих транзакций
+        matching_query = db.query(BankTransaction).filter(
+            BankTransaction.is_active == True,
+            # Только транзакции без категории или с низкой уверенностью
+            or_(
+                BankTransaction.category_id == None,
+                BankTransaction.status == BankTransactionStatusEnum.NEEDS_REVIEW
+            )
+        )
+
+        # Добавляем фильтр в зависимости от типа правила
+        if rule_type_enum == CategorizationRuleTypeEnum.COUNTERPARTY_INN:
+            matching_query = matching_query.filter(
+                BankTransaction.counterparty_inn == request.match_value
+            )
+        elif rule_type_enum == CategorizationRuleTypeEnum.COUNTERPARTY_NAME:
+            matching_query = matching_query.filter(
+                BankTransaction.counterparty_name == request.match_value
+            )
+        elif rule_type_enum == CategorizationRuleTypeEnum.BUSINESS_OPERATION:
+            matching_query = matching_query.filter(
+                BankTransaction.business_operation == request.match_value
+            )
+        elif rule_type_enum == CategorizationRuleTypeEnum.KEYWORD:
+            matching_query = matching_query.filter(
+                BankTransaction.payment_purpose.ilike(f"%{request.match_value}%")
+            )
+
+        matching_transactions = matching_query.all()
+        logger.info(f"📋 Found {len(matching_transactions)} matching transactions")
+
+        # Применяем категорию
+        for tx in matching_transactions:
+            tx.category_id = request.category_id
+            tx.status = BankTransactionStatusEnum.CATEGORIZED
+            tx.category_confidence = request.confidence
+            tx.reviewed_by = current_user.id
+            tx.reviewed_at = datetime.utcnow()
+            applied_count += 1
+
+        db.commit()
+        logger.info(f"✅ Applied category to {applied_count} transactions")
+
+    return {
+        "success": True,
+        "message": f"Правило создано{' и применено к ' + str(applied_count) + ' операциям' if applied_count > 0 else ''}",
+        "rule_id": new_rule.id,
+        "rule_type": new_rule.rule_type.value,
+        "category_name": category.name,
+        "applied_count": applied_count
+    }
 
 
 # ==================== AI Classification ====================
@@ -1023,25 +1630,29 @@ def get_category_suggestions(
 
     classifier = TransactionClassifier(db)
 
-    suggestions = classifier.get_suggestions(
+    suggestions = classifier.get_category_suggestions(
         payment_purpose=transaction.payment_purpose,
         counterparty_name=transaction.counterparty_name,
         counterparty_inn=transaction.counterparty_inn,
-        amount=float(transaction.amount) if transaction.amount else None,
-        business_operation=transaction.business_operation,
+        amount=float(transaction.amount) if transaction.amount else 0,
         transaction_type=transaction.transaction_type.value if transaction.transaction_type else None,
-        limit=5
+        top_n=5
     )
 
     result = []
     for s in suggestions:
         category = db.query(BudgetCategory).filter(BudgetCategory.id == s['category_id']).first()
         if category:
+            # reasoning может быть списком - преобразуем в строку
+            reasoning = s.get('reasoning')
+            if isinstance(reasoning, list):
+                reasoning = ', '.join(reasoning) if reasoning else None
+
             result.append(CategorySuggestion(
                 category_id=s['category_id'],
                 category_name=category.name,
                 confidence=s['confidence'],
-                reasoning=s.get('reasoning')
+                reasoning=reasoning
             ))
 
     return result
@@ -1371,116 +1982,6 @@ def auto_match_transactions(
     }
 
 
-@router.get("/account-grouping", response_model=AccountGroupingList)
-def get_account_grouping(
-    date_from: Optional[date] = None,
-    date_to: Optional[date] = None,
-    transaction_type: Optional[BankTransactionTypeEnum] = None,
-    status: Optional[BankTransactionStatusEnum] = None,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    """Get transactions grouped by account number."""
-
-    # Base query
-    query = db.query(BankTransaction).filter(BankTransaction.is_active == True)
-
-    # Apply filters
-    if date_from:
-        query = query.filter(BankTransaction.transaction_date >= date_from)
-    if date_to:
-        query = query.filter(BankTransaction.transaction_date <= date_to)
-    if transaction_type:
-        query = query.filter(BankTransaction.transaction_type == transaction_type)
-    if status:
-        query = query.filter(BankTransaction.status == status)
-
-    # Group by account number
-    accounts_data = db.query(
-        BankTransaction.account_number,
-        BankTransaction.organization_id,
-        func.count(BankTransaction.id).label('total_count'),
-        func.sum(
-            func.case((BankTransaction.transaction_type == BankTransactionTypeEnum.CREDIT, 1), else_=0)
-        ).label('credit_count'),
-        func.sum(
-            func.case((BankTransaction.transaction_type == BankTransactionTypeEnum.DEBIT, 1), else_=0)
-        ).label('debit_count'),
-        func.sum(
-            func.case(
-                (BankTransaction.transaction_type == BankTransactionTypeEnum.CREDIT, BankTransaction.amount),
-                else_=0
-            )
-        ).label('total_credit_amount'),
-        func.sum(
-            func.case(
-                (BankTransaction.transaction_type == BankTransactionTypeEnum.DEBIT, BankTransaction.amount),
-                else_=0
-            )
-        ).label('total_debit_amount'),
-        func.sum(
-            func.case(
-                (and_(
-                    BankTransaction.status.in_([BankTransactionStatusEnum.NEW, BankTransactionStatusEnum.NEEDS_REVIEW]),
-                    BankTransaction.category_id == None
-                ), 1),
-                else_=0
-            )
-        ).label('needs_processing_count'),
-        func.sum(
-            func.case((BankTransaction.status == BankTransactionStatusEnum.APPROVED, 1), else_=0)
-        ).label('approved_count'),
-        func.max(BankTransaction.transaction_date).label('last_transaction_date')
-    ).filter(
-        BankTransaction.is_active == True
-    )
-
-    # Apply same filters to grouping query
-    if date_from:
-        accounts_data = accounts_data.filter(BankTransaction.transaction_date >= date_from)
-    if date_to:
-        accounts_data = accounts_data.filter(BankTransaction.transaction_date <= date_to)
-    if transaction_type:
-        accounts_data = accounts_data.filter(BankTransaction.transaction_type == transaction_type)
-    if status:
-        accounts_data = accounts_data.filter(BankTransaction.status == status)
-
-    accounts_data = accounts_data.group_by(
-        BankTransaction.account_number,
-        BankTransaction.organization_id
-    ).order_by(func.max(BankTransaction.transaction_date).desc()).all()
-
-    # Get organization names
-    org_ids = [acc.organization_id for acc in accounts_data if acc.organization_id]
-    orgs = {}
-    if org_ids:
-        org_list = db.query(Organization).filter(Organization.id.in_(org_ids)).all()
-        orgs = {org.id: org.name for org in org_list}
-
-    # Build result
-    accounts = []
-    for acc in accounts_data:
-        accounts.append(AccountGrouping(
-            account_number=acc.account_number or "",
-            organization_id=acc.organization_id,
-            organization_name=orgs.get(acc.organization_id) if acc.organization_id else None,
-            total_count=acc.total_count or 0,
-            credit_count=acc.credit_count or 0,
-            debit_count=acc.debit_count or 0,
-            total_credit_amount=acc.total_credit_amount or Decimal("0"),
-            total_debit_amount=acc.total_debit_amount or Decimal("0"),
-            balance=(acc.total_credit_amount or Decimal("0")) - (acc.total_debit_amount or Decimal("0")),
-            needs_processing_count=acc.needs_processing_count or 0,
-            approved_count=acc.approved_count or 0,
-            last_transaction_date=acc.last_transaction_date
-        ))
-
-    return AccountGroupingList(
-        accounts=accounts,
-        total_accounts=len(accounts)
-    )
-
-
 # ==================== Similar Transactions ====================
 
 @router.get("/{transaction_id}/similar", response_model=List[BankTransactionResponse])
@@ -1515,31 +2016,103 @@ def get_similar_transactions(
         BankTransaction.category_id == None  # Только не категоризированные
     )
 
-    # Filter by similar attributes
-    conditions = []
+    # Стоп-слова и общие банковские термины, которые не следует использовать для поиска
+    stop_words = {
+        # Предлоги и союзы
+        'для', 'при', 'или', 'без', 'под', 'над', 'перед', 'после',
+        'через', 'между', 'среди', 'вместо', 'кроме', 'около', 'вдоль',
+        # Общие банковские термины
+        'оплата', 'плата', 'платеж', 'счет', 'счёт', 'счету', 'договор',
+        'договору', 'номер', 'дата', 'период', 'услуги', 'услуг',
+        'работы', 'работ', 'товар', 'товара', 'товаров', 'включая',
+        'также', 'всего', 'итого', 'сумма', 'сумму', 'рублей', 'рубль',
+        'копеек', 'копейка', 'безналичный', 'наличный', 'перевод',
+        'перечисление', 'возврат', 'аванс', 'предоплата', 'доплата',
+        'комиссия', 'комис', 'пополнение', 'списание', 'зачисление',
+        # НДС и налоги
+        'числе', 'число', 'включительно', 'облагается', 'ставка',
+        # Документы
+        'документ', 'основание', 'назначение', 'платежа',
+        # Даты
+        'январь', 'февраль', 'март', 'апрель', 'июнь', 'июль',
+        'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
+        # Банковские операции
+        'операции', 'операция', 'банк', 'банка', 'расчетный', 'расчётный',
+        'корреспондентский', 'транзакция', 'межбанк', 'межбанковский',
+    }
 
-    # Same counterparty (exact match)
+    # Паттерны банковских комиссий и служебных операций для исключения
+    commission_patterns = [
+        'комис%',
+        'пополнение по операции сбп%',
+        'плата за пакет%',
+        'плата за обслуживание%',
+        'плата за предоставление услуги%',
+        'плата за пополнение%',
+        'погашение задолженности по договору%',
+        'межбанки%',
+        'sms-банк%',
+        'sms банк%',
+        'смс-банк%',
+        'смс банк%',
+    ]
+
+    # Исключаем банковские комиссии из результатов поиска
+    # Важно: учитываем NULL значения payment_purpose (они не должны исключаться)
+    for pattern in commission_patterns:
+        query = query.filter(
+            or_(
+                BankTransaction.payment_purpose.is_(None),
+                ~BankTransaction.payment_purpose.ilike(pattern)
+            )
+        )
+
+    # Стратегия поиска: объединяем контрагента, business_operation и ключевые слова через OR
+    search_conditions = []
+
+    # 1. Поиск по контрагенту (ИНН или имя)
     if source_transaction.counterparty_inn:
-        conditions.append(BankTransaction.counterparty_inn == source_transaction.counterparty_inn)
-    elif source_transaction.counterparty_name:
-        conditions.append(BankTransaction.counterparty_name == source_transaction.counterparty_name)
+        # По ИНН - точное совпадение
+        search_conditions.append(BankTransaction.counterparty_inn == source_transaction.counterparty_inn)
 
-    # Similar payment purpose (if counterparty doesn't match)
-    if source_transaction.payment_purpose and len(conditions) == 0:
-        # Extract keywords from payment purpose (simple approach)
-        keywords = [word for word in source_transaction.payment_purpose.split() if len(word) > 4]
-        if keywords:
-            keyword_conditions = [BankTransaction.payment_purpose.ilike(f"%{kw}%") for kw in keywords[:5]]
-            conditions.append(or_(*keyword_conditions))
+    if source_transaction.counterparty_name:
+        # По имени - используем ilike для более мягкого поиска
+        name_parts = source_transaction.counterparty_name.strip().split()
+        if name_parts:
+            # Точное совпадение по имени
+            search_conditions.append(BankTransaction.counterparty_name.ilike(source_transaction.counterparty_name))
+            # Поиск по фамилии (первое слово имени, если >= 3 символов)
+            if len(name_parts[0]) >= 3:
+                search_conditions.append(BankTransaction.counterparty_name.ilike(f"{name_parts[0]}%"))
 
-    # Same business operation
+    # 2. Поиск по business_operation (хозяйственной операции) - ВСЕГДА если есть
     if source_transaction.business_operation:
-        conditions.append(BankTransaction.business_operation == source_transaction.business_operation)
+        search_conditions.append(BankTransaction.business_operation == source_transaction.business_operation)
 
-    if conditions:
-        query = query.filter(or_(*conditions))
+    # 3. Поиск по ключевым словам из назначения платежа (если нет других критериев)
+    if not search_conditions and source_transaction.payment_purpose:
+        # Извлекаем значимые ключевые слова (минимум 5 символов, не стоп-слова)
+        words = source_transaction.payment_purpose.lower().split()
+        keywords = [
+            word.strip('.,;:!?()[]{}"\'-')
+            for word in words
+            if len(word) >= 5 and word.lower().strip('.,;:!?()[]{}"\'-') not in stop_words
+        ]
 
-    # Same transaction type
+        # Берём только уникальные слова длиной >= 6 символов для более точного поиска
+        significant_keywords = list(set([kw for kw in keywords if len(kw) >= 6]))[:3]
+
+        if significant_keywords:
+            # Создаём условие: все ключевые слова должны присутствовать
+            keyword_conditions = [BankTransaction.payment_purpose.ilike(f"%{kw}%") for kw in significant_keywords]
+            if keyword_conditions:
+                search_conditions.append(and_(*keyword_conditions))
+
+    # Применяем все условия через OR (любое совпадение)
+    if search_conditions:
+        query = query.filter(or_(*search_conditions))
+
+    # Фильтр по типу транзакции
     query = query.filter(BankTransaction.transaction_type == source_transaction.transaction_type)
 
     # Order by date and limit
@@ -1601,6 +2174,9 @@ def apply_category_to_similar(
     source_transaction.status = BankTransactionStatusEnum.CATEGORIZED
     source_transaction.updated_at = datetime.utcnow()
 
+    # Collect all transactions for rule analysis
+    all_transactions = [source_transaction]
+
     # Apply to similar transactions if specified
     updated_count = 1
     if request.apply_to_transaction_ids:
@@ -1614,12 +2190,21 @@ def apply_category_to_similar(
             tx.status = BankTransactionStatusEnum.CATEGORIZED
             tx.updated_at = datetime.utcnow()
             updated_count += 1
+            all_transactions.append(tx)
 
     db.commit()
+
+    # Analyze rule suggestions based on ALL categorized transactions
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"🔍 Apply to similar: analyzing {len(all_transactions)} transactions for rule suggestions")
+
+    rule_suggestions = analyze_rule_suggestions(all_transactions, request.category_id, db)
 
     return {
         "message": f"Категория применена к {updated_count} операциям",
         "updated_count": updated_count,
         "category_id": category.id,
-        "category_name": category.name
+        "category_name": category.name,
+        "rule_suggestions": rule_suggestions
     }

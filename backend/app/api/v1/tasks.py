@@ -60,8 +60,8 @@ def list_tasks(
     limit: int = 20,
     current_user: User = Depends(get_current_active_user)
 ):
-    """List all background tasks."""
-    tasks = task_manager.get_all_tasks(task_type=task_type)[:limit]
+    """List all background tasks from database."""
+    tasks = task_manager.get_all_tasks(task_type=task_type, limit=limit)
 
     return TaskListResponse(
         tasks=[TaskStatusResponse(**t.to_dict()) for t in tasks],

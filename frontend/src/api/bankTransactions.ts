@@ -1,10 +1,18 @@
 import apiClient from './client'
+import type {
+  CategorizationWithSuggestionsResponse,
+  BulkCategorizationWithSuggestionsResponse,
+  CreateRuleFromSuggestionRequest,
+  RuleSuggestionsResponse
+} from '../types/bankTransaction'
 
 export interface BankTransaction {
   id: number
   transaction_date: string
   amount: number
   transaction_type: 'DEBIT' | 'CREDIT'
+  vat_amount?: number | null
+  vat_rate?: number | null
   counterparty_name: string | null
   counterparty_inn: string | null
   counterparty_kpp: string | null
@@ -51,12 +59,19 @@ export interface TransactionFilters {
   search?: string
   category_id?: number
   account_number?: string
+  organization_id?: number
   only_unprocessed?: boolean
   skip?: number
   limit?: number
+  offset?: number
 }
 
-export const getBankTransactions = async (filters: TransactionFilters): Promise<BankTransaction[]> => {
+export interface PaginatedBankTransactions {
+  items: BankTransaction[]
+  total: number
+}
+
+export const getBankTransactions = async (filters: TransactionFilters): Promise<PaginatedBankTransactions> => {
   // Remove undefined/null values from params
   const cleanParams = Object.entries(filters).reduce((acc, [key, value]) => {
     if (value !== undefined && value !== null && value !== '') {
@@ -64,6 +79,12 @@ export const getBankTransactions = async (filters: TransactionFilters): Promise<
     }
     return acc
   }, {} as Record<string, any>)
+
+  // Use skip instead of offset if offset is provided
+  if (cleanParams.offset !== undefined) {
+    cleanParams.skip = cleanParams.offset
+    delete cleanParams.offset
+  }
 
   const response = await apiClient.get('/bank-transactions', { params: cleanParams })
   return response.data
@@ -74,13 +95,25 @@ export const getTransactionStats = async (params: object = {}): Promise<BankTran
   return response.data
 }
 
-export const categorizeTransaction = async (id: number, data: { category_id: number; notes?: string }) => {
+export const categorizeTransaction = async (
+  id: number,
+  data: { category_id: number; notes?: string }
+): Promise<CategorizationWithSuggestionsResponse> => {
   const response = await apiClient.put(`/bank-transactions/${id}/categorize`, data)
   return response.data
 }
 
-export const bulkCategorize = async (data: { transaction_ids: number[]; category_id: number }) => {
+export const bulkCategorize = async (
+  data: { transaction_ids: number[]; category_id: number }
+): Promise<BulkCategorizationWithSuggestionsResponse> => {
   const response = await apiClient.post('/bank-transactions/bulk-categorize', data)
+  return response.data
+}
+
+export const createRuleFromSuggestion = async (
+  data: CreateRuleFromSuggestionRequest
+): Promise<{ success: boolean; message: string; rule_id: number; applied_count?: number }> => {
+  const response = await apiClient.post('/bank-transactions/create-rule-from-suggestion', data)
   return response.data
 }
 
@@ -224,6 +257,20 @@ export const bulkDelete = async (transaction_ids: number[]) => {
   return response.data
 }
 
+export const deleteByFilter = async (filters: TransactionFilters) => {
+  const cleanParams = Object.entries(filters).reduce((acc, [key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      acc[key] = value
+    }
+    return acc
+  }, {} as Record<string, any>)
+
+  const response = await apiClient.post('/bank-transactions/delete-by-filter', null, {
+    params: cleanParams
+  })
+  return response.data
+}
+
 export const updateTransaction = async (id: number, data: Partial<BankTransaction>) => {
   const response = await apiClient.put(`/bank-transactions/${id}`, data)
   return response.data
@@ -277,7 +324,13 @@ export const applyCategoryToSimilar = async (
   transactionId: number,
   categoryId: number,
   applyToTransactionIds?: number[]
-): Promise<{ message: string; updated_count: number; category_id: number; category_name: string }> => {
+): Promise<{
+  message: string
+  updated_count: number
+  category_id: number
+  category_name: string
+  rule_suggestions: RuleSuggestionsResponse
+}> => {
   const response = await apiClient.post(`/bank-transactions/${transactionId}/apply-category-to-similar`, {
     category_id: categoryId,
     apply_to_transaction_ids: applyToTransactionIds || null
@@ -290,6 +343,8 @@ export interface AccountGrouping {
   account_number: string
   organization_id: number | null
   organization_name: string | null
+  our_bank_name: string | null
+  our_bank_bik: string | null
   total_count: number
   credit_count: number
   debit_count: number
@@ -312,6 +367,10 @@ export const getAccountGrouping = async (filters: {
   transaction_type?: string
   status?: string
 }): Promise<AccountGroupingList> => {
-  const response = await apiClient.get('/bank-transactions/account-grouping', { params: filters })
+  // Фильтруем undefined параметры, чтобы избежать 422 ошибки
+  const cleanParams = Object.fromEntries(
+    Object.entries(filters).filter(([_, value]) => value !== undefined && value !== '')
+  )
+  const response = await apiClient.get('/bank-transactions/account-grouping', { params: cleanParams })
   return response.data
 }

@@ -1,6 +1,6 @@
 """Budget category schemas."""
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 from app.db.models import ExpenseTypeEnum
@@ -53,7 +53,7 @@ class CategoryResponse(CategoryInDB):
 
 class CategoryTree(CategoryResponse):
     """Category with children for tree structure."""
-    children: List["CategoryTree"] = []
+    children: List["CategoryTree"] = Field(default_factory=list)
 
 
 CategoryTree.model_rebuild()

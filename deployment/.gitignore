@@ -1,0 +1,15 @@
+# Production environment files (содержат пароли)
+.env.prod
+
+# SSL сертификаты
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+
+# Логи
+*.log
+
+# Бэкапы
+backups/
+*.sql
+*.sql.gz

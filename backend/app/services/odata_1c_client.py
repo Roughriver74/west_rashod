@@ -6,13 +6,57 @@
 
 import logging
 import base64
-from typing import Optional, Dict, Any, List
+import time
+from typing import Optional, Dict, Any, List, Callable
 from datetime import datetime, date
 from pathlib import Path
 import requests
 from requests.auth import HTTPBasicAuth
+from functools import wraps
 
 logger = logging.getLogger(__name__)
+
+
+def retry_with_backoff(max_retries: int = 3, initial_delay: float = 1.0, backoff_factor: float = 2.0):
+    """
+    Декоратор для повтора функции с экспоненциальным backoff при ошибках.
+
+    Args:
+        max_retries: Максимальное количество попыток
+        initial_delay: Начальная задержка в секундах
+        backoff_factor: Множитель для экспоненциального роста задержки
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = initial_delay
+            last_exception = None
+
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except (requests.exceptions.Timeout,
+                        requests.exceptions.ConnectionError,
+                        requests.exceptions.RequestException) as e:
+                    last_exception = e
+
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            f"Попытка {attempt + 1}/{max_retries} не удалась: {str(e)}. "
+                            f"Повтор через {delay:.1f} сек..."
+                        )
+                        time.sleep(delay)
+                        delay *= backoff_factor
+                    else:
+                        logger.error(
+                            f"Все {max_retries} попытки не удались. Последняя ошибка: {str(e)}"
+                        )
+
+            # Если все попытки исчерпаны, выбрасываем последнее исключение
+            raise last_exception
+
+        return wrapper
+    return decorator
 
 
 class OData1CClient:
@@ -55,29 +99,30 @@ class OData1CClient:
         self._counterparty_cache: Dict[str, Dict[str, Any]] = {}
         self._organization_cache: Dict[str, Dict[str, Any]] = {}
 
+    @retry_with_backoff(max_retries=3, initial_delay=2.0, backoff_factor=2.0)
     def _make_request(
         self,
         method: str,
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
         data: Optional[Dict[str, Any]] = None,
-        timeout: int = 30
+        timeout: int = 60
     ) -> Dict[str, Any]:
         """
-        Make HTTP request to OData API
+        Make HTTP request to OData API with automatic retry on failures
 
         Args:
             method: HTTP method (GET, POST, etc.)
             endpoint: API endpoint (without base URL)
             params: Query parameters
             data: Request body data
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (увеличено до 60 сек)
 
         Returns:
             Response data as dictionary
 
         Raises:
-            requests.exceptions.RequestException: On request errors
+            requests.exceptions.RequestException: On request errors after all retries
         """
         # Для POST запросов используем http.client
         if method == 'POST' and data:
@@ -302,17 +347,15 @@ class OData1CClient:
         endpoint_with_params = f'Document_ПриходныйКассовыйОрдер?$top={top_value}&$format=json&$skip={skip}'
         mandatory_filters = "Posted eq true and DeletionMark eq false"
 
+        # Используем точные фильтры по датам (как для безналичных)
         if date_from and date_to:
-            if date_from.year == date_to.year and date_from.month == date_to.month:
-                filter_str = f'{mandatory_filters} and year(Date) eq {date_from.year} and month(Date) eq {date_from.month}'
-                endpoint_with_params += f'&$filter={filter_str}'
-            else:
-                year_filter = date_from.year - 1
-                filter_str = f'{mandatory_filters} and year(Date) gt {year_filter}'
-                endpoint_with_params += f'&$filter={filter_str}'
+            filter_str = f"{mandatory_filters} and Date ge datetime'{date_from.isoformat()}T00:00:00' and Date le datetime'{date_to.isoformat()}T23:59:59'"
+            endpoint_with_params += f'&$filter={filter_str}'
         elif date_from:
-            year_filter = date_from.year - 1
-            filter_str = f'{mandatory_filters} and year(Date) gt {year_filter}'
+            filter_str = f"{mandatory_filters} and Date ge datetime'{date_from.isoformat()}T00:00:00'"
+            endpoint_with_params += f'&$filter={filter_str}'
+        elif date_to:
+            filter_str = f"{mandatory_filters} and Date le datetime'{date_to.isoformat()}T23:59:59'"
             endpoint_with_params += f'&$filter={filter_str}'
         else:
             endpoint_with_params += f'&$filter={mandatory_filters}'
@@ -350,17 +393,15 @@ class OData1CClient:
         endpoint_with_params = f'Document_РасходныйКассовыйОрдер?$top={top_value}&$format=json&$skip={skip}'
         mandatory_filters = "Posted eq true and DeletionMark eq false"
 
+        # Используем точные фильтры по датам (как для безналичных)
         if date_from and date_to:
-            if date_from.year == date_to.year and date_from.month == date_to.month:
-                filter_str = f'{mandatory_filters} and year(Date) eq {date_from.year} and month(Date) eq {date_from.month}'
-                endpoint_with_params += f'&$filter={filter_str}'
-            else:
-                year_filter = date_from.year - 1
-                filter_str = f'{mandatory_filters} and year(Date) gt {year_filter}'
-                endpoint_with_params += f'&$filter={filter_str}'
+            filter_str = f"{mandatory_filters} and Date ge datetime'{date_from.isoformat()}T00:00:00' and Date le datetime'{date_to.isoformat()}T23:59:59'"
+            endpoint_with_params += f'&$filter={filter_str}'
         elif date_from:
-            year_filter = date_from.year - 1
-            filter_str = f'{mandatory_filters} and year(Date) gt {year_filter}'
+            filter_str = f"{mandatory_filters} and Date ge datetime'{date_from.isoformat()}T00:00:00'"
+            endpoint_with_params += f'&$filter={filter_str}'
+        elif date_to:
+            filter_str = f"{mandatory_filters} and Date le datetime'{date_to.isoformat()}T23:59:59'"
             endpoint_with_params += f'&$filter={filter_str}'
         else:
             endpoint_with_params += f'&$filter={mandatory_filters}'
@@ -445,6 +486,39 @@ class OData1CClient:
             logger.warning(f"Failed to fetch organization {key}: {e}")
             return None
 
+    def get_bank_account_by_key(self, key: str) -> Optional[Dict[str, Any]]:
+        """
+        Получить банковский счёт по ключу (с кэшированием)
+
+        Args:
+            key: GUID банковского счёта
+
+        Returns:
+            Данные банковского счёта или None
+        """
+        if not key or key == "00000000-0000-0000-0000-000000000000":
+            return None
+
+        # Check cache (use organization cache with prefix)
+        cache_key = f"bank_account_{key}"
+        if cache_key in self._organization_cache:
+            return self._organization_cache[cache_key]
+
+        try:
+            # Запрашиваем с расширением Банк для получения информации о банке
+            response = self._make_request(
+                method='GET',
+                endpoint=f"Catalog_БанковскиеСчетаОрганизаций(guid'{key}')",
+                params={'$format': 'json', '$expand': 'Банк'}
+            )
+            # Cache the result
+            if response:
+                self._organization_cache[cache_key] = response
+            return response
+        except Exception as e:
+            logger.warning(f"Failed to fetch bank account {key}: {e}")
+            return None
+
     def get_organizations(
         self,
         top: int = 100,
@@ -468,6 +542,47 @@ class OData1CClient:
         logger.debug(f"Fetched {len(results)} organizations")
 
         return results
+
+    def get_bank_by_key(self, key: str) -> Optional[Dict[str, Any]]:
+        """
+        Получить информацию о банке по ключу (GUID)
+
+        Args:
+            key: GUID банка
+
+        Returns:
+            Данные банка или None
+        """
+        if not key or key == "00000000-0000-0000-0000-000000000000":
+            return None
+
+        # Check cache
+        cache_key = f"bank_{key}"
+        if cache_key in self._organization_cache:
+            return self._organization_cache[cache_key]
+
+        try:
+            # Пробуем сначала Catalog_КлассификаторБанков
+            try:
+                response = self._make_request(
+                    method='GET',
+                    endpoint=f"Catalog_КлассификаторБанков(guid'{key}')",
+                    params={'$format': 'json'}
+                )
+            except:
+                # Fallback to Catalog_Банки if Классификатор not found
+                response = self._make_request(
+                    method='GET',
+                    endpoint=f"Catalog_Банки(guid'{key}')",
+                    params={'$format': 'json'}
+                )
+            # Cache the result
+            if response:
+                self._organization_cache[cache_key] = response
+            return response
+        except Exception as e:
+            logger.warning(f"Failed to fetch bank {key}: {e}")
+            return None
 
     def get_cash_flow_categories(
         self,
@@ -506,6 +621,52 @@ class OData1CClient:
         logger.debug(f"Fetched {len(results)} cash flow categories")
 
         return results
+
+    def get_contractors(
+        self,
+        top: int = 1000,
+        skip: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Получить список контрагентов из 1С
+
+        Args:
+            top: Количество записей (max 1000)
+            skip: Пропустить N записей (для пагинации)
+
+        Returns:
+            Список контрагентов
+        """
+        all_contractors = []
+        current_skip = skip
+
+        while True:
+            top_value = min(top, 1000)
+            filter_str = "DeletionMark eq false and IsFolder eq false"
+            endpoint_with_params = f'Catalog_Контрагенты?$top={top_value}&$format=json&$skip={current_skip}&$filter={filter_str}'
+
+            logger.debug(f"Fetching contractors: top={top_value}, skip={current_skip}")
+
+            response = self._make_request(
+                method='GET',
+                endpoint=endpoint_with_params,
+                params=None
+            )
+
+            results = response.get('value', [])
+            if not results:
+                break
+
+            all_contractors.extend(results)
+            logger.debug(f"Fetched {len(results)} contractors (total: {len(all_contractors)})")
+
+            if len(results) < top_value:
+                # Last page
+                break
+
+            current_skip += len(results)
+
+        return all_contractors
 
     def get_counterparty_by_inn(self, inn: str) -> Optional[Dict[str, Any]]:
         """
@@ -569,12 +730,12 @@ class OData1CClient:
             logger.error(f"Failed to search organization by INN {inn}: {e}")
             return None
 
-    def test_connection(self) -> bool:
+    def test_connection(self) -> tuple[bool, str]:
         """
         Проверить подключение к 1С OData
 
         Returns:
-            True если подключение успешно
+            Tuple (success: bool, message: str)
         """
         try:
             response = self._make_request(
@@ -583,11 +744,13 @@ class OData1CClient:
                 params={'$format': 'json'},
                 timeout=10
             )
-            logger.info("1C OData connection test successful")
-            return True
+            message = "Подключение к 1С OData успешно"
+            logger.info(message)
+            return True, message
         except Exception as e:
-            logger.error(f"1C OData connection test failed: {e}")
-            return False
+            message = f"Ошибка подключения к 1С OData: {e}"
+            logger.error(message)
+            return False, message
 
 
 _ODATA_ENV_LOADED = False

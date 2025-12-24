@@ -21,6 +21,8 @@ export interface BankTransaction {
   transaction_date: string
   amount: number
   transaction_type: BankTransactionType
+  vat_amount?: number  // Сумма НДС
+  vat_rate?: number    // Ставка НДС в процентах
   payment_source?: 'BANK' | 'CASH'
   counterparty_name?: string
   counterparty_inn?: string
@@ -29,6 +31,7 @@ export interface BankTransaction {
   counterparty_bank?: string
   counterparty_bik?: string
   payment_purpose?: string
+  business_operation?: string
   organization_id?: number
   account_number?: string
   document_number?: string
@@ -67,6 +70,8 @@ export interface BankTransactionCreate {
   transaction_date: string
   amount: number
   transaction_type: BankTransactionType
+  vat_amount?: number
+  vat_rate?: number
   counterparty_name?: string
   counterparty_inn?: string
   counterparty_kpp?: string
@@ -74,6 +79,7 @@ export interface BankTransactionCreate {
   counterparty_bank?: string
   counterparty_bik?: string
   payment_purpose?: string
+  business_operation?: string
   organization_id?: number
   account_number?: string
   document_number?: string
@@ -88,6 +94,8 @@ export interface BankTransactionUpdate {
   status?: BankTransactionStatus
   notes?: string
   is_regular_payment?: boolean
+  vat_amount?: number
+  vat_rate?: number
 }
 
 export interface BankTransactionCategorize {
@@ -146,6 +154,47 @@ export interface CategorySuggestion {
   category_name: string
   confidence: number
   reasoning: string[]
+}
+
+// ===================================================================
+// Categorization Rule Suggestions Types
+// ===================================================================
+
+export interface RuleSuggestion {
+  rule_type: string // "COUNTERPARTY_INN", "COUNTERPARTY_NAME", "BUSINESS_OPERATION"
+  match_value: string
+  transaction_count: number
+  description: string
+  can_create: boolean
+  matching_existing_count: number
+}
+
+export interface RuleSuggestionsResponse {
+  suggestions: RuleSuggestion[]
+  total_transactions: number
+  category_id: number
+  category_name: string
+}
+
+export interface CategorizationWithSuggestionsResponse {
+  transaction: BankTransaction
+  rule_suggestions: RuleSuggestionsResponse
+}
+
+export interface BulkCategorizationWithSuggestionsResponse {
+  updated_count: number
+  message: string
+  rule_suggestions: RuleSuggestionsResponse
+}
+
+export interface CreateRuleFromSuggestionRequest {
+  rule_type: string
+  match_value: string
+  category_id: number
+  priority?: number
+  confidence?: number
+  notes?: string
+  apply_to_existing?: boolean
 }
 
 export interface RegularPaymentPattern {

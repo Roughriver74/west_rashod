@@ -5,7 +5,6 @@ import {
   TagsOutlined,
   TeamOutlined,
   SyncOutlined,
-  SettingOutlined,
   LogoutOutlined,
   UserOutlined,
   FileTextOutlined,
@@ -75,11 +74,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       icon: <RobotOutlined />,
       label: 'Правила категоризации',
     },
-    {
-      key: '/mappings',
-      icon: <SettingOutlined />,
-      label: 'Маппинг операций',
-    },
+    
     {
       key: '/sync-1c',
       icon: <SyncOutlined />,
@@ -162,7 +157,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             </Space>
           </Dropdown>
         </Header>
-        <Content style={{ margin: '24px', background: '#f5f5f5' }}>
+        <Content style={{ padding: '24px', background: '#f5f5f5' }}>
           {children}
         </Content>
       </Layout>

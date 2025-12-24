@@ -85,6 +85,24 @@ class BankTransaction1CImporter:
         else:
             self.classifier = None
 
+        # Кэши для оптимизации производительности
+        self._organization_cache: Dict[str, Optional[Organization]] = {}
+        self._bank_account_cache: Dict[str, tuple[Optional[str], Optional[str], Optional[str]]] = {}
+        self._counterparty_cache: Dict[str, Dict[str, Any]] = {}
+        self._business_operation_mapping_cache: set = set()
+
+        # Предзагрузка существующих маппингов бизнес-операций
+        self._preload_business_operation_mappings()
+
+    def _preload_business_operation_mappings(self):
+        """Предзагрузка существующих маппингов бизнес-операций для быстрой проверки"""
+        try:
+            existing_mappings = self.db.query(BusinessOperationMapping.business_operation).all()
+            self._business_operation_mapping_cache = {m[0] for m in existing_mappings if m[0]}
+            logger.debug(f"Preloaded {len(self._business_operation_mapping_cache)} business operation mappings")
+        except Exception as e:
+            logger.warning(f"Failed to preload business operation mappings: {e}")
+
     def import_transactions(
         self,
         date_from: date,
@@ -375,9 +393,8 @@ class BankTransaction1CImporter:
             )
 
         if existing:
-            for key, value in transaction_data.items():
-                setattr(existing, key, value)
-
+            # Обновляем ТОЛЬКО данные из 1С, сохраняя пользовательские поля
+            self._update_transaction_from_1c(existing, transaction_data)
             result.total_updated += 1
             logger.debug(f"Updated receipt {external_id}")
 
@@ -424,9 +441,8 @@ class BankTransaction1CImporter:
             )
 
         if existing:
-            for key, value in transaction_data.items():
-                setattr(existing, key, value)
-
+            # Обновляем ТОЛЬКО данные из 1С, сохраняя пользовательские поля
+            self._update_transaction_from_1c(existing, transaction_data)
             result.total_updated += 1
             logger.debug(f"Updated payment {external_id}")
 
@@ -473,9 +489,8 @@ class BankTransaction1CImporter:
             )
 
         if existing:
-            for key, value in transaction_data.items():
-                setattr(existing, key, value)
-
+            # Обновляем ТОЛЬКО данные из 1С, сохраняя пользовательские поля
+            self._update_transaction_from_1c(existing, transaction_data)
             result.total_updated += 1
             logger.debug(f"Updated cash receipt (PKO) {external_id}")
 
@@ -522,9 +537,8 @@ class BankTransaction1CImporter:
             )
 
         if existing:
-            for key, value in transaction_data.items():
-                setattr(existing, key, value)
-
+            # Обновляем ТОЛЬКО данные из 1С, сохраняя пользовательские поля
+            self._update_transaction_from_1c(existing, transaction_data)
             result.total_updated += 1
             logger.debug(f"Updated cash payment (RKO) {external_id}")
 
@@ -547,6 +561,36 @@ class BankTransaction1CImporter:
 
         result.total_processed += 1
 
+    def _update_transaction_from_1c(
+        self,
+        existing: BankTransaction,
+        transaction_data: Dict[str, Any]
+    ) -> None:
+        """
+        Обновляет существующую транзакцию данными из 1С,
+        НЕ затирая пользовательские поля (категория, статус, confidence и т.д.)
+        """
+        # Поля, которые НЕЛЬЗЯ перезаписывать - это пользовательские данные
+        protected_fields = {
+            'status',                    # Статус обработки (NEW, CATEGORIZED, APPROVED и т.д.)
+            'category_id',               # Назначенная категория
+            'suggested_category_id',     # Предложенная категория
+            'category_confidence',       # Уверенность классификации
+            'approved_by',               # Кто подтвердил
+            'approved_at',               # Когда подтверждено
+            'expense_id',                # Связь с заявкой на расход
+            'notes',                     # Пользовательские заметки (если уже есть)
+        }
+
+        # Поля из 1С, которые можно обновлять
+        for key, value in transaction_data.items():
+            if key in protected_fields:
+                # Для notes - обновляем только если в существующей записи пусто
+                if key == 'notes' and not getattr(existing, key, None):
+                    setattr(existing, key, value)
+                continue
+            setattr(existing, key, value)
+
     def _parse_receipt_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Парсинг данных поступления из 1С в формат BankTransaction"""
         date_str = data.get('Date', '')
@@ -554,10 +598,12 @@ class BankTransaction1CImporter:
 
         statement_data = self._parse_statement_data(data.get('ДанныеВыписки', ''))
 
+        payment_purpose = data.get('НазначениеПлатежа', '')
+
         result = {
             'transaction_date': transaction_date,
             'amount': Decimal(str(data.get('СуммаДокумента', 0))),
-            'payment_purpose': data.get('НазначениеПлатежа', ''),
+            'payment_purpose': payment_purpose,
             'business_operation': data.get('ХозяйственнаяОперация', None),
             'document_number': data.get('Number', ''),
             'document_date': self._parse_date(data.get('ДатаВходящегоДокумента')),
@@ -567,6 +613,25 @@ class BankTransaction1CImporter:
             'payment_source': PaymentSourceEnum.BANK
         }
 
+        # Извлекаем НДС из назначения платежа
+        vat_amount, vat_rate = self._extract_vat_from_text(payment_purpose)
+        if vat_amount is not None:
+            result['vat_amount'] = vat_amount
+        if vat_rate is not None:
+            result['vat_rate'] = vat_rate
+        # Если есть сумма НДС но нет ставки, пытаемся вычислить ставку
+        elif vat_amount and result['amount']:
+            amount_without_vat = result['amount'] - vat_amount
+            if amount_without_vat > 0:
+                calculated_rate = (vat_amount / amount_without_vat) * 100
+                # Округляем до ближайшей стандартной ставки (0, 10, 20)
+                if abs(calculated_rate - 20) < 1:
+                    result['vat_rate'] = Decimal('20')
+                elif abs(calculated_rate - 10) < 0.5:
+                    result['vat_rate'] = Decimal('10')
+                elif calculated_rate < 0.5:
+                    result['vat_rate'] = Decimal('0')
+
         if statement_data:
             result.update({
                 'counterparty_name': statement_data.get('Плательщик'),
@@ -575,8 +640,19 @@ class BankTransaction1CImporter:
                 'counterparty_account': statement_data.get('ПлательщикСчет'),
                 'counterparty_bank': statement_data.get('ПлательщикБанк1'),
                 'counterparty_bik': statement_data.get('ПлательщикБИК'),
-                'account_number': statement_data.get('ПолучательСчет')
             })
+            # Номер счёта из ДанныеВыписки (fallback)
+            if statement_data.get('ПолучательСчет'):
+                result['account_number'] = statement_data.get('ПолучательСчет')
+
+        # Получаем информацию о банковском счёте из справочника 1С
+        account_number, bank_name, bank_bik = self._resolve_bank_account_info(data)
+        if account_number:
+            result['account_number'] = account_number
+        if bank_name:
+            result['our_bank_name'] = bank_name
+        if bank_bik:
+            result['our_bank_bik'] = bank_bik
 
         organization_id = self._resolve_organization_id(data)
         if organization_id:
@@ -591,10 +667,12 @@ class BankTransaction1CImporter:
 
         statement_data = self._parse_statement_data(data.get('ДанныеВыписки', ''))
 
+        payment_purpose = data.get('НазначениеПлатежа', '')
+
         result = {
             'transaction_date': transaction_date,
             'amount': Decimal(str(data.get('СуммаДокумента', 0))),
-            'payment_purpose': data.get('НазначениеПлатежа', ''),
+            'payment_purpose': payment_purpose,
             'business_operation': data.get('ХозяйственнаяОперация', None),
             'document_number': data.get('Number', ''),
             'document_date': self._parse_date(data.get('ДатаВходящегоДокумента')),
@@ -604,6 +682,25 @@ class BankTransaction1CImporter:
             'payment_source': PaymentSourceEnum.BANK
         }
 
+        # Извлекаем НДС из назначения платежа
+        vat_amount, vat_rate = self._extract_vat_from_text(payment_purpose)
+        if vat_amount is not None:
+            result['vat_amount'] = vat_amount
+        if vat_rate is not None:
+            result['vat_rate'] = vat_rate
+        # Если есть сумма НДС но нет ставки, пытаемся вычислить ставку
+        elif vat_amount and result['amount']:
+            amount_without_vat = result['amount'] - vat_amount
+            if amount_without_vat > 0:
+                calculated_rate = (vat_amount / amount_without_vat) * 100
+                # Округляем до ближайшей стандартной ставки (0, 10, 20)
+                if abs(calculated_rate - 20) < 1:
+                    result['vat_rate'] = Decimal('20')
+                elif abs(calculated_rate - 10) < 0.5:
+                    result['vat_rate'] = Decimal('10')
+                elif calculated_rate < 0.5:
+                    result['vat_rate'] = Decimal('0')
+
         if statement_data:
             result.update({
                 'counterparty_name': statement_data.get('Получатель'),
@@ -612,8 +709,19 @@ class BankTransaction1CImporter:
                 'counterparty_account': statement_data.get('ПолучательСчет'),
                 'counterparty_bank': statement_data.get('ПолучательБанк1'),
                 'counterparty_bik': statement_data.get('ПолучательБИК'),
-                'account_number': statement_data.get('ПлательщикСчет')
             })
+            # Номер счёта из ДанныеВыписки (fallback)
+            if statement_data.get('ПлательщикСчет'):
+                result['account_number'] = statement_data.get('ПлательщикСчет')
+
+        # Получаем информацию о банковском счёте из справочника 1С
+        account_number, bank_name, bank_bik = self._resolve_bank_account_info(data)
+        if account_number:
+            result['account_number'] = account_number
+        if bank_name:
+            result['our_bank_name'] = bank_name
+        if bank_bik:
+            result['our_bank_bik'] = bank_bik
 
         organization_id = self._resolve_organization_id(data)
         if organization_id:
@@ -649,23 +757,122 @@ class BankTransaction1CImporter:
         except (ValueError, AttributeError):
             return None
 
+    def _extract_vat_from_text(self, text: str) -> tuple[Optional[Decimal], Optional[Decimal]]:
+        """
+        Извлечение НДС из текста назначения платежа.
+
+        Ищет паттерны:
+        - "В Т.Ч. НДС 5953-49"
+        - "В ТОМ ЧИСЛЕ НДС - 32971.00 рублей"
+        - "НДС 20% 1000"
+        - "НДС 10% - 3344,56руб"
+        - "в т.ч. ндс 20% 1000.00"
+
+        Returns:
+            tuple: (vat_amount, vat_rate) или (None, None)
+        """
+        if not text:
+            return None, None
+
+        text_upper = text.upper()
+
+        # Паттерн 1: "НДС 20% - 3344,56" или "НДС 10% 1000.00"
+        # Ставка и сумма с опциональным дефисом между ними
+        pattern1 = r'НДС\s+(\d+)\s*%\s*-?\s*([\d\s\.,]+)(?:РУБ|РУБЛЕЙ)?'
+        match = re.search(pattern1, text_upper)
+        if match:
+            rate_str = match.group(1)
+            amount_str = match.group(2).replace(' ', '').replace(',', '.')
+            # Удаляем множественные точки (если есть)
+            parts = amount_str.split('.')
+            if len(parts) > 2:
+                amount_str = ''.join(parts[:-1]) + '.' + parts[-1]
+            try:
+                vat_rate = Decimal(rate_str)
+                vat_amount = Decimal(amount_str)
+                return vat_amount, vat_rate
+            except (ValueError, Exception):
+                pass
+
+        # Паттерн 2: "В ТОМ ЧИСЛЕ НДС - 32971.00" или "В Т.Ч. НДС 5953-49"
+        # Различные варианты "в том числе" + сумма
+        pattern2 = r'(?:В\s+ТОМ\s+ЧИСЛЕ|В\s+Т\.?\s*Ч\.?)\s+НДС\s*-?\s*([\d\s\.,\-]+)(?:РУБ|РУБЛЕЙ)?'
+        match = re.search(pattern2, text_upper)
+        if match:
+            vat_str = match.group(1).replace(' ', '').replace('-', '.').replace(',', '.')
+            # Удаляем множественные точки
+            parts = vat_str.split('.')
+            if len(parts) > 2:
+                vat_str = ''.join(parts[:-1]) + '.' + parts[-1]
+            try:
+                vat_amount = Decimal(vat_str)
+                return vat_amount, None
+            except (ValueError, Exception):
+                pass
+
+        # Паттерн 3: Просто "НДС - 1000.00" или "НДС 1000"
+        pattern3 = r'(?<![А-Я])НДС\s*-?\s*([\d\s\.,]+)(?:РУБ|РУБЛЕЙ)?(?!\s*%)'
+        match = re.search(pattern3, text_upper)
+        if match:
+            # Проверяем что это не "НДС 20%" (не ставка)
+            amount_str = match.group(1).replace(' ', '').replace(',', '.')
+            parts = amount_str.split('.')
+            if len(parts) > 2:
+                amount_str = ''.join(parts[:-1]) + '.' + parts[-1]
+            try:
+                vat_amount = Decimal(amount_str)
+                # Игнорируем если это похоже на ставку (< 100)
+                if vat_amount >= 100:
+                    return vat_amount, None
+            except (ValueError, Exception):
+                pass
+
+        # Паттерн 4: Только ставка "НДС 20%"
+        pattern4 = r'НДС\s+(\d+)\s*%'
+        match = re.search(pattern4, text_upper)
+        if match:
+            rate_str = match.group(1)
+            try:
+                vat_rate = Decimal(rate_str)
+                return None, vat_rate
+            except (ValueError, Exception):
+                pass
+
+        return None, None
+
     def _parse_cash_receipt_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Парсинг данных приходного кассового ордера (ПКО) из 1С"""
         date_str = data.get('Date', '')
         transaction_date = self._parse_date(date_str)
 
+        # Назначение платежа для кассовых документов - это поле "Основание"
+        payment_purpose = (
+            data.get('Основание', '') or
+            data.get('ОснованиеПлатежа', '') or
+            data.get('НазначениеПлатежа', '')
+        )
+
         result = {
             'transaction_date': transaction_date,
             'amount': Decimal(str(data.get('СуммаДокумента', 0))),
-            'payment_purpose': data.get('ОснованиеПлатежа', '') or data.get('НазначениеПлатежа', ''),
+            'payment_purpose': payment_purpose,
             'business_operation': data.get('ХозяйственнаяОперация', None),
             'document_number': data.get('Number', ''),
             'document_date': transaction_date,
             'notes': data.get('Комментарий', ''),
             'status': BankTransactionStatusEnum.NEW,
             'document_type': DocumentTypeEnum.CASH_ORDER,
-            'payment_source': PaymentSourceEnum.CASH
+            'payment_source': PaymentSourceEnum.CASH,
+            'account_number': 'Касса',  # Default for cash operations
         }
+
+        # Get cash register name from 1C
+        if data.get('Касса'):
+            cash_register = data.get('Касса')
+            if isinstance(cash_register, dict):
+                result['account_number'] = cash_register.get('Description', 'Касса')
+            elif isinstance(cash_register, str):
+                result['account_number'] = cash_register
 
         if data.get('Контрагент_Key'):
             counterparty_data = self.odata_client.get_counterparty_by_key(data.get('Контрагент_Key'))
@@ -685,18 +892,34 @@ class BankTransaction1CImporter:
         date_str = data.get('Date', '')
         transaction_date = self._parse_date(date_str)
 
+        # Назначение платежа для кассовых документов - это поле "Основание"
+        payment_purpose = (
+            data.get('Основание', '') or
+            data.get('ОснованиеПлатежа', '') or
+            data.get('НазначениеПлатежа', '')
+        )
+
         result = {
             'transaction_date': transaction_date,
             'amount': Decimal(str(data.get('СуммаДокумента', 0))),
-            'payment_purpose': data.get('ОснованиеПлатежа', '') or data.get('НазначениеПлатежа', ''),
+            'payment_purpose': payment_purpose,
             'business_operation': data.get('ХозяйственнаяОперация', None),
             'document_number': data.get('Number', ''),
             'document_date': transaction_date,
             'notes': data.get('Комментарий', ''),
             'status': BankTransactionStatusEnum.NEW,
             'document_type': DocumentTypeEnum.CASH_ORDER,
-            'payment_source': PaymentSourceEnum.CASH
+            'payment_source': PaymentSourceEnum.CASH,
+            'account_number': 'Касса',  # Default for cash operations
         }
+
+        # Get cash register name from 1C
+        if data.get('Касса'):
+            cash_register = data.get('Касса')
+            if isinstance(cash_register, dict):
+                result['account_number'] = cash_register.get('Description', 'Касса')
+            elif isinstance(cash_register, str):
+                result['account_number'] = cash_register
 
         if data.get('Контрагент_Key'):
             counterparty_data = self.odata_client.get_counterparty_by_key(data.get('Контрагент_Key'))
@@ -712,7 +935,7 @@ class BankTransaction1CImporter:
         return result
 
     def _resolve_organization_id(self, data: Dict[str, Any]) -> Optional[int]:
-        """Получить или создать организацию на основе данных 1С"""
+        """Получить или создать организацию на основе данных 1С (с кэшированием)"""
         org_key = data.get('Организация_Key')
         if not org_key:
             org_key = self._extract_guid_from_nav_link(data.get('Организация@navigationLinkUrl'))
@@ -720,8 +943,121 @@ class BankTransaction1CImporter:
         if not org_key:
             return None
 
+        # Проверяем кэш
+        if org_key in self._organization_cache:
+            org = self._organization_cache[org_key]
+            return org.id if org else None
+
         organization = self._get_or_create_organization(org_key)
+        self._organization_cache[org_key] = organization
         return organization.id if organization else None
+
+    def _resolve_bank_account_info(self, data: Dict[str, Any]) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """
+        Получить информацию о банковском счёте из справочника 1С (с кэшированием)
+
+        Returns:
+            Tuple of (account_number, bank_name, bank_bik)
+        """
+        # Пробуем разные названия полей для банковского счёта
+        account_key = (
+            data.get('БанковскийСчет_Key') or
+            data.get('СчетОрганизации_Key') or
+            data.get('БанковскийСчётОрганизации_Key') or
+            self._extract_guid_from_nav_link(data.get('БанковскийСчет@navigationLinkUrl')) or
+            self._extract_guid_from_nav_link(data.get('СчетОрганизации@navigationLinkUrl'))
+        )
+
+        if not account_key or account_key == "00000000-0000-0000-0000-000000000000":
+            # Логируем только если не нашли ключ счёта (это важно для отладки)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"No valid account_key found. Available keys: {list(data.keys())}")
+            return None, None, None
+
+        # Проверяем кэш
+        if account_key in self._bank_account_cache:
+            return self._bank_account_cache[account_key]
+
+        try:
+            account_data = self.odata_client.get_bank_account_by_key(account_key)
+
+            if account_data:
+                # Получаем номер счёта
+                account_number = (
+                    account_data.get('НомерСчета') or
+                    account_data.get('Description') or
+                    account_data.get('Code')
+                )
+
+                # Получаем информацию о банке
+                bank_name = None
+                bank_bik = None
+
+                # Проверяем, есть ли расширенные данные банка (через $expand)
+                bank_data = account_data.get('Банк')
+
+                if bank_data and isinstance(bank_data, dict):
+                    # Если банк загружен через $expand
+                    bank_name = (
+                        bank_data.get('Description') or
+                        bank_data.get('Наименование') or
+                        bank_data.get('НаименованиеПолное')
+                    )
+                    # БИК хранится в поле Code (английскими буквами)
+                    bank_bik = bank_data.get('Code') or bank_data.get('Код') or bank_data.get('БИК')
+                else:
+                    # Попытка получить данные напрямую из account_data
+                    bank_name = account_data.get('БанкНаименование')
+                    bank_bik = account_data.get('БИК') or account_data.get('БанкБИК')
+
+                    # Если есть ключ банка, запрашиваем его отдельно
+                    bank_key = (
+                        account_data.get('Банк_Key') or
+                        self._extract_guid_from_nav_link(account_data.get('Банк@navigationLinkUrl'))
+                    )
+
+                    if bank_key and bank_key != "00000000-0000-0000-0000-000000000000":
+                        try:
+                            bank_info = self.odata_client.get_bank_by_key(bank_key)
+
+                            if bank_info:
+                                bank_name = (
+                                    bank_info.get('Description') or
+                                    bank_info.get('Наименование') or
+                                    bank_info.get('НаименованиеПолное')
+                                )
+                                # БИК хранится в поле Code (английскими буквами)
+                                bank_bik = bank_info.get('Code') or bank_info.get('Код') or bank_info.get('БИК')
+                        except Exception as e:
+                            logger.warning(f"Failed to fetch bank by key {bank_key}: {e}")
+
+                if account_number:
+                    # Логируем только если нашли название банка или БИК
+                    if bank_name or bank_bik:
+                        logger.info(f"✓ Resolved bank: {account_number} -> {bank_name} (БИК: {bank_bik or 'не указан'})")
+                    result = (
+                        str(account_number)[:20],  # Обрезаем до 20 символов
+                        str(bank_name)[:500] if bank_name else None,
+                        str(bank_bik)[:20] if bank_bik else None
+                    )
+                    # Кэшируем результат
+                    self._bank_account_cache[account_key] = result
+                    return result
+                else:
+                    logger.warning(f"Account number not found in account_data for key: {account_key}")
+            else:
+                logger.warning(f"No account data received for key: {account_key}")
+        except Exception as e:
+            logger.error(f"Failed to resolve bank account {account_key}: {e}")
+
+        # Кэшируем отрицательный результат тоже
+        self._bank_account_cache[account_key] = (None, None, None)
+        return None, None, None
+
+    def _resolve_bank_account_number(self, data: Dict[str, Any]) -> Optional[str]:
+        """Получить номер банковского счёта из справочника 1С (обратная совместимость)"""
+        account_number, _, _ = self._resolve_bank_account_info(data)
+        return account_number
 
     def _get_or_create_organization(self, org_key: str) -> Optional[Organization]:
         """Найти или создать организацию по ключу 1С"""
@@ -830,8 +1166,12 @@ class BankTransaction1CImporter:
         business_operation: str,
         result: BankTransaction1CImportResult
     ) -> None:
-        """Создать stub-маппинг для хозяйственной операции, если его ещё нет"""
+        """Создать stub-маппинг для хозяйственной операции, если его ещё нет (с кэшированием)"""
         if not business_operation:
+            return
+
+        # Проверяем кэш
+        if business_operation in self._business_operation_mapping_cache:
             return
 
         existing = self.db.query(BusinessOperationMapping).filter(
@@ -839,6 +1179,7 @@ class BankTransaction1CImporter:
         ).first()
 
         if existing:
+            self._business_operation_mapping_cache.add(business_operation)
             return
 
         stub_mapping = BusinessOperationMapping(
@@ -852,6 +1193,9 @@ class BankTransaction1CImporter:
 
         self.db.add(stub_mapping)
         self.db.flush()
+
+        # Добавляем в кэш
+        self._business_operation_mapping_cache.add(business_operation)
 
         result.auto_stubs_created += 1
         logger.debug(f"Created stub mapping for business operation: {business_operation}")

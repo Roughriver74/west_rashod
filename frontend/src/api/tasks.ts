@@ -71,6 +71,26 @@ export const startAsyncContractorsSync = async (): Promise<AsyncSyncResponse> =>
   return response.data;
 };
 
+// Start async organizations sync
+export const startAsyncOrganizationsSync = async (): Promise<AsyncSyncResponse> => {
+  const response = await api.post('/sync-1c/organizations/sync-async');
+  return response.data;
+};
+
+// Start async categories sync
+export const startAsyncCategoriesSync = async (): Promise<AsyncSyncResponse> => {
+  const response = await api.post('/sync-1c/categories/sync-async');
+  return response.data;
+};
+
+// Start full async sync (organizations + categories + transactions)
+export const startAsyncFullSync = async (
+  request: AsyncSyncRequest
+): Promise<AsyncSyncResponse> => {
+  const response = await api.post('/sync-1c/full/sync-async', request);
+  return response.data;
+};
+
 // WebSocket connection for task updates
 export class TaskWebSocket {
   private ws: WebSocket | null = null;

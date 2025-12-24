@@ -22,6 +22,7 @@ interface TaskProgressProps {
   onClose: () => void;
   onComplete?: (task: TaskInfo) => void;
   useWebSocket?: boolean;
+  keepPollingWhenHidden?: boolean;
 }
 
 const statusConfig: Record<TaskStatus, { color: string; icon: React.ReactNode; text: string }> = {
@@ -39,11 +40,13 @@ export const TaskProgress: React.FC<TaskProgressProps> = ({
   onClose,
   onComplete,
   useWebSocket = true,
+  keepPollingWhenHidden = false,
 }) => {
   const [task, setTask] = useState<TaskInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [taskNotFound, setTaskNotFound] = useState(false);
 
   // Fetch task status via polling (fallback)
   const fetchStatus = useCallback(async () => {
@@ -56,9 +59,28 @@ export const TaskProgress: React.FC<TaskProgressProps> = ({
       if (['completed', 'failed', 'cancelled'].includes(data.status)) {
         onComplete?.(data);
       }
-    } catch (err) {
-      setError('Не удалось получить статус задачи');
-      console.error('Error fetching task status:', err);
+    } catch (err: unknown) {
+      // Проверяем 404 ошибку - задача не найдена (возможно сервер перезапускался)
+      const axiosError = err as { response?: { status?: number } };
+      if (axiosError?.response?.status === 404) {
+        setTaskNotFound(true);
+        setError('Задача не найдена. Возможно, сервер был перезапущен. Пожалуйста, запустите синхронизацию заново.');
+        // Создаём фиктивную задачу с ошибкой для отображения
+        setTask({
+          task_id: taskId,
+          task_type: 'unknown',
+          status: 'failed' as TaskStatus,
+          progress: 0,
+          total: 0,
+          processed: 0,
+          message: 'Задача не найдена',
+          error: 'Задача не найдена на сервере. Возможно, сервер был перезапущен.',
+          metadata: {},
+        });
+      } else {
+        setError('Не удалось получить статус задачи');
+        console.error('Error fetching task status:', err);
+      }
     } finally {
       setLoading(false);
     }
@@ -66,7 +88,7 @@ export const TaskProgress: React.FC<TaskProgressProps> = ({
 
   // WebSocket connection
   useEffect(() => {
-    if (!visible || !taskId) return;
+    if ((!visible && !keepPollingWhenHidden) || !taskId || taskNotFound) return;
 
     let ws: TaskWebSocket | null = null;
     let pollInterval: ReturnType<typeof setInterval> | null = null;
@@ -100,7 +122,7 @@ export const TaskProgress: React.FC<TaskProgressProps> = ({
     // Always set up polling as fallback
     fetchStatus();
     pollInterval = setInterval(async () => {
-      if (!isFinished) {
+      if (!isFinished && !taskNotFound) {
         await fetchStatus();
       }
     }, 2000);
@@ -109,7 +131,7 @@ export const TaskProgress: React.FC<TaskProgressProps> = ({
       ws?.disconnect();
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [visible, taskId, useWebSocket, fetchStatus, onComplete]);
+  }, [visible, taskId, useWebSocket, fetchStatus, onComplete, keepPollingWhenHidden, taskNotFound]);
 
   const handleCancel = async () => {
     if (!taskId) return;

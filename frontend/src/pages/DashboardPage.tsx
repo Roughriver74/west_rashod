@@ -12,6 +12,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { getAnalytics } from '../api/bankTransactions'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import dayjs, { Dayjs } from 'dayjs'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -24,6 +25,7 @@ const { RangePicker } = DatePicker
 const COLORS = ['#1890ff', '#52c41a', '#faad14', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#fa8c16']
 
 export default function DashboardPage() {
+  const navigate = useNavigate()
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null]>([
     dayjs().startOf('month'),
     dayjs().endOf('month')
@@ -38,6 +40,22 @@ export default function DashboardPage() {
       compare_previous_period: true
     }),
   })
+
+  // Функция для перехода на страницу операций с фильтрами
+  const navigateToTransactions = (filters: Record<string, string>) => {
+    const searchParams = new URLSearchParams()
+
+    // Добавляем период из дашборда
+    if (dateRange[0]) searchParams.set('date_from', dateRange[0].format('YYYY-MM-DD'))
+    if (dateRange[1]) searchParams.set('date_to', dateRange[1].format('YYYY-MM-DD'))
+
+    // Добавляем дополнительные фильтры
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) searchParams.set(key, value)
+    })
+
+    navigate(`/bank-transactions?${searchParams.toString()}`)
+  }
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('ru-RU', {
@@ -141,7 +159,11 @@ export default function DashboardPage() {
       {/* KPI Cards */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
-          <Card>
+          <Card
+            hoverable
+            onClick={() => navigateToTransactions({})}
+            style={{ cursor: 'pointer' }}
+          >
             <Statistic
               title="Всего операций"
               value={kpis?.total_transactions || 0}
@@ -156,7 +178,11 @@ export default function DashboardPage() {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card>
+          <Card
+            hoverable
+            onClick={() => navigateToTransactions({ status: 'NEW' })}
+            style={{ cursor: 'pointer' }}
+          >
             <Statistic
               title="Новые"
               value={kpis?.new_count || 0}
@@ -168,7 +194,11 @@ export default function DashboardPage() {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card>
+          <Card
+            hoverable
+            onClick={() => navigateToTransactions({ status: 'CATEGORIZED' })}
+            style={{ cursor: 'pointer' }}
+          >
             <Statistic
               title="Категоризированы"
               value={kpis?.categorized_count || 0}
@@ -180,7 +210,11 @@ export default function DashboardPage() {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card>
+          <Card
+            hoverable
+            onClick={() => navigateToTransactions({ only_unprocessed: 'true' })}
+            style={{ cursor: 'pointer' }}
+          >
             <Statistic
               title="Требуют проверки"
               value={kpis?.needs_review_count || 0}
@@ -192,7 +226,11 @@ export default function DashboardPage() {
         </Col>
 
         <Col xs={24} sm={12}>
-          <Card>
+          <Card
+            hoverable
+            onClick={() => navigateToTransactions({ transaction_type: 'DEBIT' })}
+            style={{ cursor: 'pointer' }}
+          >
             <Statistic
               title="Расходы (DEBIT)"
               value={kpis?.total_debit_amount || 0}
@@ -207,7 +245,11 @@ export default function DashboardPage() {
         </Col>
 
         <Col xs={24} sm={12}>
-          <Card>
+          <Card
+            hoverable
+            onClick={() => navigateToTransactions({ transaction_type: 'CREDIT' })}
+            style={{ cursor: 'pointer' }}
+          >
             <Statistic
               title="Поступления (CREDIT)"
               value={kpis?.total_credit_amount || 0}
@@ -296,6 +338,16 @@ export default function DashboardPage() {
                     dataKey="value"
                     label={({ name, percent }) => `${(name || '').slice(0, 15)}${(name || '').length > 15 ? '...' : ''} (${(percent || 0).toFixed(0)}%)`}
                     labelLine={false}
+                    onClick={(data) => {
+                      if (data && data.name) {
+                        // Находим ID категории из данных
+                        const categoryItem = analytics?.top_categories?.find(c => c.category_name === data.name)
+                        if (categoryItem) {
+                          navigateToTransactions({ category_id: categoryItem.category_id.toString() })
+                        }
+                      }
+                    }}
+                    cursor="pointer"
                   >
                     {categoryData.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -324,7 +376,25 @@ export default function DashboardPage() {
                   <XAxis type="number" />
                   <YAxis type="category" dataKey="name" width={120} />
                   <Tooltip formatter={(value) => formatNumber(Number(value || 0))} />
-                  <Bar dataKey="value" fill="#1890ff">
+                  <Bar
+                    dataKey="value"
+                    fill="#1890ff"
+                    onClick={(data: any) => {
+                      // Маппинг русских названий на статусы
+                      const statusMap: Record<string, string> = {
+                        'Новые': 'NEW',
+                        'Категоризированы': 'CATEGORIZED',
+                        'Одобрены': 'APPROVED',
+                        'На проверке': 'NEEDS_REVIEW',
+                        'Игнорированы': 'IGNORED'
+                      }
+                      const status = statusMap[data.name]
+                      if (status) {
+                        navigateToTransactions({ status })
+                      }
+                    }}
+                    cursor="pointer"
+                  >
                     {statusData.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}

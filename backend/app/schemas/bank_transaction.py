@@ -19,6 +19,10 @@ class BankTransactionBase(BaseModel):
     amount: Decimal
     transaction_type: BankTransactionTypeEnum = BankTransactionTypeEnum.DEBIT
 
+    # VAT (НДС)
+    vat_amount: Optional[Decimal] = None
+    vat_rate: Optional[Decimal] = None
+
     # Counterparty
     counterparty_name: Optional[str] = None
     counterparty_inn: Optional[str] = None
@@ -75,6 +79,8 @@ class BankTransactionUpdate(BaseModel):
     transaction_date: Optional[date] = None
     amount: Optional[Decimal] = None
     transaction_type: Optional[BankTransactionTypeEnum] = None
+    vat_amount: Optional[Decimal] = None
+    vat_rate: Optional[Decimal] = None
     counterparty_name: Optional[str] = None
     counterparty_inn: Optional[str] = None
     counterparty_kpp: Optional[str] = None
@@ -190,6 +196,50 @@ class CategorySuggestion(BaseModel):
     category_name: str
     confidence: float
     reasoning: Optional[str] = None
+
+
+# ==================== Categorization Rule Suggestions ====================
+
+class RuleSuggestion(BaseModel):
+    """Предложение создать правило категоризации."""
+    rule_type: str  # "COUNTERPARTY_INN", "COUNTERPARTY_NAME", "BUSINESS_OPERATION"
+    match_value: str  # Значение для поиска (ИНН, название, операция)
+    transaction_count: int  # Сколько транзакций подходят
+    description: str  # Человекочитаемое описание
+    can_create: bool  # Можно ли создать (нет дубликатов)
+    matching_existing_count: int = 0  # Сколько существующих транзакций без категории будут затронуты
+
+
+class RuleSuggestionsResponse(BaseModel):
+    """Ответ с предложениями создания правил."""
+    suggestions: List[RuleSuggestion]
+    total_transactions: int
+    category_id: int
+    category_name: str
+
+
+class CategorizationWithSuggestionsResponse(BaseModel):
+    """Ответ после категоризации с предложениями правил."""
+    transaction: BankTransactionResponse
+    rule_suggestions: RuleSuggestionsResponse
+
+
+class BulkCategorizationWithSuggestionsResponse(BaseModel):
+    """Ответ после массовой категоризации с предложениями правил."""
+    updated_count: int
+    message: str
+    rule_suggestions: RuleSuggestionsResponse
+
+
+class CreateRuleFromSuggestionRequest(BaseModel):
+    """Запрос на создание правила из предложения."""
+    rule_type: str  # "COUNTERPARTY_INN", "COUNTERPARTY_NAME", "BUSINESS_OPERATION", "KEYWORD"
+    match_value: str
+    category_id: int
+    priority: int = 10
+    confidence: float = 0.95
+    notes: Optional[str] = None
+    apply_to_existing: bool = False  # Применить правило к существующим транзакциям
 
 
 # ==================== Pagination ====================
@@ -472,6 +522,8 @@ class AccountGrouping(BaseModel):
     account_number: str
     organization_id: Optional[int] = None
     organization_name: Optional[str] = None
+    our_bank_name: Optional[str] = None
+    our_bank_bik: Optional[str] = None
     total_count: int
     credit_count: int
     debit_count: int

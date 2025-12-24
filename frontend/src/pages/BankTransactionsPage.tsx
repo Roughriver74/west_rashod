@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Card,
   Table,
@@ -35,6 +36,7 @@ import {
   WalletOutlined,
   ExclamationCircleOutlined,
   LoadingOutlined,
+  ClearOutlined,
 } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { saveAs } from 'file-saver'
@@ -54,9 +56,14 @@ import {
   getCategorySuggestions,
   getSimilarTransactions,
   applyCategoryToSimilar,
+  PaginatedBankTransactions,
+  deleteByFilter,
+  updateTransaction,
 } from '../api/bankTransactions'
-import { getCategories } from '../api/categories'
+import type { RuleSuggestionsResponse } from '../types/bankTransaction'
 import AccountsFilter from '../components/AccountsFilter'
+import CategoryTreeSelect from '../components/CategoryTreeSelect'
+import { RuleSuggestionsModal } from '../components/RuleSuggestionsModal'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
@@ -89,17 +96,55 @@ const formatAmount = (amount: number) => {
   return Number(amount).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽'
 }
 
+const truncateCategoryName = (text: string, max = 22) =>
+  text && text.length > max ? `${text.slice(0, max - 3)}...` : text
+
 export default function BankTransactionsPage() {
   const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([])
-  const [filters, setFilters] = useState<TransactionFilters>({
-    limit: 50,
-  })
+
+  // Инициализация фильтров из URL параметров
+  const initializeFiltersFromURL = (): TransactionFilters => {
+    const urlFilters: TransactionFilters = {
+      limit: 50,
+      offset: 0,
+    }
+
+    // Читаем фильтры из URL
+    const status = searchParams.get('status')
+    const transactionType = searchParams.get('transaction_type')
+    const dateFrom = searchParams.get('date_from')
+    const dateTo = searchParams.get('date_to')
+    const onlyUnprocessed = searchParams.get('only_unprocessed')
+    const categoryId = searchParams.get('category_id')
+    const search = searchParams.get('search')
+    const accountNumber = searchParams.get('account_number')
+    const organizationId = searchParams.get('organization_id')
+
+    if (status) urlFilters.status = status
+    if (transactionType) urlFilters.transaction_type = transactionType
+    if (dateFrom) urlFilters.date_from = dateFrom
+    if (dateTo) urlFilters.date_to = dateTo
+    if (onlyUnprocessed === 'true') urlFilters.only_unprocessed = true
+    if (categoryId) urlFilters.category_id = parseInt(categoryId)
+    if (search) urlFilters.search = search
+    if (accountNumber) urlFilters.account_number = accountNumber
+    if (organizationId) urlFilters.organization_id = parseInt(organizationId)
+
+    return urlFilters
+  }
+
+  const [filters, setFilters] = useState<TransactionFilters>(initializeFiltersFromURL())
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
   const [categorizeDrawerOpen, setCategorizeDrawerOpen] = useState(false)
   const [selectedTransaction, setSelectedTransaction] = useState<BankTransaction | null>(null)
   const [similarTransactionsDrawerOpen, setSimilarTransactionsDrawerOpen] = useState(false)
   const [selectedSimilarIds, setSelectedSimilarIds] = useState<number[]>([])
   const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null)
+  const [ruleSuggestionsVisible, setRuleSuggestionsVisible] = useState(false)
+  const [ruleSuggestions, setRuleSuggestions] = useState<RuleSuggestionsResponse | null>(null)
   const [form] = Form.useForm()
 
   // Reset selected similar IDs when similar drawer opens
@@ -109,25 +154,46 @@ export default function BankTransactionsPage() {
     }
   }, [similarTransactionsDrawerOpen])
 
+  // Reset page to 1 when filters change (except limit and offset)
+  useEffect(() => {
+    setCurrentPage(1)
+    setFilters((prev) => ({ ...prev, offset: 0 }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    filters.search,
+    filters.status,
+    filters.transaction_type,
+    filters.payment_source,
+    filters.category_id,
+    filters.account_number,
+    filters.organization_id,
+    filters.only_unprocessed,
+    filters.date_from,
+    filters.date_to,
+  ])
+
   // Fetch transactions
-  const { data: transactions = [], isLoading } = useQuery({
+  const { data: transactionsData, isLoading } = useQuery<PaginatedBankTransactions>({
     queryKey: ['bank-transactions', filters],
     queryFn: () => getBankTransactions(filters),
   })
 
-  // Fetch stats
+  const transactions = transactionsData?.items || []
+  const totalTransactions = transactionsData?.total || 0
+
+  // Fetch stats with all filters
   const { data: stats } = useQuery({
-    queryKey: ['bank-transactions-stats', filters.date_from, filters.date_to],
+    queryKey: ['bank-transactions-stats', filters],
     queryFn: () => getTransactionStats({
       date_from: filters.date_from,
       date_to: filters.date_to,
+      transaction_type: filters.transaction_type,
+      payment_source: filters.payment_source,
+      account_number: filters.account_number,
+      organization_id: filters.organization_id,
+      category_id: filters.category_id,
+      search: filters.search,
     }),
-  })
-
-  // Fetch categories
-  const { data: categories = [] } = useQuery({
-    queryKey: ['categories'],
-    queryFn: () => getCategories({ is_active: true }),
   })
 
   // Category suggestions
@@ -173,11 +239,26 @@ export default function BankTransactionsPage() {
   const bulkCategorizeMutation = useMutation({
     mutationFn: (category_id: number) =>
       bulkCategorize({ transaction_ids: selectedRowKeys, category_id }),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log('🔍 Bulk categorize response:', data)
+      console.log('🔍 Rule suggestions:', data.rule_suggestions)
+
       message.success('Категория назначена')
       setSelectedRowKeys([])
       queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
       queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
+
+      // Показываем модалку с предложениями правил
+      if (data.rule_suggestions && data.rule_suggestions.suggestions.length > 0) {
+        console.log('✅ Показываем модалку с предложениями')
+        setRuleSuggestions(data.rule_suggestions)
+        setRuleSuggestionsVisible(true)
+      } else {
+        console.log('❌ Модалка не показана. Причина:', {
+          hasRuleSuggestions: !!data.rule_suggestions,
+          suggestionsCount: data.rule_suggestions?.suggestions?.length || 0
+        })
+      }
     },
   })
 
@@ -185,13 +266,30 @@ export default function BankTransactionsPage() {
   const categorizeMutation = useMutation({
     mutationFn: ({ id, category_id, notes }: { id: number; category_id: number; notes?: string }) =>
       categorizeTransaction(id, { category_id, notes }),
-    onSuccess: () => {
+    onSuccess: (data) => {
       message.success('Категория назначена')
       setCategorizeDrawerOpen(false)
       setSimilarTransactionsDrawerOpen(false)
       setSelectedTransaction(null)
       setSelectedSimilarIds([])
       form.resetFields()
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
+
+      // Показываем модалку с предложениями правил
+      if (data.rule_suggestions && data.rule_suggestions.suggestions.length > 0) {
+        setRuleSuggestions(data.rule_suggestions)
+        setRuleSuggestionsVisible(true)
+      }
+    },
+  })
+
+  // Update transaction mutation (for VAT and other fields)
+  const updateTransactionMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<BankTransaction> }) =>
+      updateTransaction(id, data),
+    onSuccess: () => {
+      message.success('Транзакция обновлена')
       queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
       queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
     },
@@ -208,6 +306,21 @@ export default function BankTransactionsPage() {
     },
   })
 
+  // Delete by filter mutation
+  const deleteByFilterMutation = useMutation({
+    mutationFn: () => deleteByFilter(filters),
+    onSuccess: (data) => {
+      message.success(`Удалено: ${data.deleted}`)
+      setSelectedRowKeys([])
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['account-grouping'] })
+    },
+    onError: (error: any) => {
+      message.error(error.response?.data?.detail || 'Ошибка удаления')
+    },
+  })
+
   // Apply category to similar mutation
   const applyCategoryToSimilarMutation = useMutation({
     mutationFn: ({ transactionId, categoryId, applyToIds }: {
@@ -216,6 +329,9 @@ export default function BankTransactionsPage() {
       applyToIds?: number[]
     }) => applyCategoryToSimilar(transactionId, categoryId, applyToIds),
     onSuccess: (data) => {
+      console.log('🔍 Apply to similar response:', data)
+      console.log('🔍 Rule suggestions:', data.rule_suggestions)
+
       message.success(data.message)
       setSimilarTransactionsDrawerOpen(false)
       setCategorizeDrawerOpen(false)
@@ -224,6 +340,18 @@ export default function BankTransactionsPage() {
       form.resetFields()
       queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
       queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
+
+      // Показываем модалку с предложениями правил
+      if (data.rule_suggestions && data.rule_suggestions.suggestions.length > 0) {
+        console.log('✅ Показываем модалку с предложениями')
+        setRuleSuggestions(data.rule_suggestions)
+        setRuleSuggestionsVisible(true)
+      } else {
+        console.log('❌ Модалка не показана. Причина:', {
+          hasRuleSuggestions: !!data.rule_suggestions,
+          suggestionsCount: data.rule_suggestions?.suggestions?.length || 0
+        })
+      }
     },
   })
 
@@ -232,12 +360,31 @@ export default function BankTransactionsPage() {
     form.setFieldsValue({
       category_id: record.category_id,
       notes: record.notes,
+      vat_rate: record.vat_rate,
+      vat_amount: record.vat_amount,
     })
     setCategorizeDrawerOpen(true)
   }
 
-  const handleCategorize = (values: { category_id: number; notes?: string }) => {
+  const handleCategorize = async (values: { category_id: number; notes?: string; vat_rate?: number; vat_amount?: number }) => {
     if (selectedTransaction) {
+      // Сначала обновляем НДС если они были изменены
+      if (values.vat_rate !== undefined || values.vat_amount !== undefined) {
+        await updateTransactionMutation.mutateAsync({
+          id: selectedTransaction.id,
+          data: {
+            vat_rate: values.vat_rate,
+            vat_amount: values.vat_amount,
+          },
+        })
+        // Обновляем selectedTransaction чтобы в окне похожих операций были новые значения
+        setSelectedTransaction({
+          ...selectedTransaction,
+          vat_rate: values.vat_rate,
+          vat_amount: values.vat_amount,
+        })
+      }
+
       // Сохраняем выбранную категорию и примечание в форму
       form.setFieldsValue({
         category_id: values.category_id,
@@ -262,6 +409,9 @@ export default function BankTransactionsPage() {
       'Дата': dayjs(t.transaction_date).format('DD.MM.YYYY'),
       'Тип': t.transaction_type === 'DEBIT' ? 'Расход' : 'Приход',
       'Сумма': Number(t.amount),
+      'НДС %': t.vat_rate || '',
+      'Сумма НДС': t.vat_amount ? Number(t.vat_amount) : '',
+      'Сумма без НДС': t.vat_amount ? Number(t.amount) - Number(t.vat_amount) : '',
       'Контрагент': t.counterparty_name || '',
       'ИНН': t.counterparty_inn || '',
       'КПП': t.counterparty_kpp || '',
@@ -323,18 +473,20 @@ export default function BankTransactionsPage() {
     message.success(`Экспортировано ${exportData.length} операций`)
   }
 
-  // Quick filter handlers
+  // Quick filter handlers - сквозная фильтрация (комбинирование фильтров)
   const handleQuickFilter = (filterType: string) => {
     if (activeQuickFilter === filterType) {
-      // Сбросить фильтр
+      // Сбросить только этот конкретный фильтр, не трогая остальные
       setActiveQuickFilter(null)
       setFilters((prev) => ({
         ...prev,
         transaction_type: undefined,
         status: undefined,
+        only_unprocessed: undefined,
+        // account_number и organization_id НЕ сбрасываются!
       }))
     } else {
-      // Применить фильтр
+      // Применить фильтр, сохраняя все остальные (включая счет и организацию)
       setActiveQuickFilter(filterType)
 
       switch (filterType) {
@@ -343,6 +495,8 @@ export default function BankTransactionsPage() {
             ...prev,
             transaction_type: 'DEBIT',
             status: undefined,
+            only_unprocessed: undefined,
+            // account_number и organization_id сохраняются!
           }))
           break
         case 'credit':
@@ -350,13 +504,17 @@ export default function BankTransactionsPage() {
             ...prev,
             transaction_type: 'CREDIT',
             status: undefined,
+            only_unprocessed: undefined,
+            // account_number и organization_id сохраняются!
           }))
           break
         case 'needs_review':
           setFilters((prev) => ({
             ...prev,
             transaction_type: undefined,
-            status: 'NEEDS_REVIEW',
+            status: undefined,
+            only_unprocessed: true,
+            // account_number и organization_id сохраняются!
           }))
           break
         default:
@@ -364,6 +522,30 @@ export default function BankTransactionsPage() {
       }
     }
   }
+
+  // Сброс всех фильтров
+  const handleClearAllFilters = () => {
+    setActiveQuickFilter(null)
+    setFilters({
+      limit: pageSize,
+      offset: 0,
+    })
+    setCurrentPage(1)
+  }
+
+  // Проверка наличия активных фильтров
+  const hasActiveFilters = !!(
+    filters.search ||
+    filters.status ||
+    filters.transaction_type ||
+    filters.payment_source ||
+    filters.category_id ||
+    filters.account_number ||
+    filters.organization_id ||
+    filters.date_from ||
+    filters.date_to ||
+    filters.only_unprocessed
+  )
 
   const columns: ColumnsType<BankTransaction> = [
     {
@@ -401,11 +583,43 @@ export default function BankTransactionsPage() {
       width: 130,
       align: 'right',
       render: (amount, record) => (
-        <Text strong style={{ color: record.transaction_type === 'DEBIT' ? '#cf1322' : '#3f8600' }}>
-          {formatAmount(amount)}
-        </Text>
+        <Space direction="vertical" size={0} style={{ alignItems: 'flex-end' }}>
+          <Text strong style={{ color: record.transaction_type === 'DEBIT' ? '#cf1322' : '#3f8600' }}>
+            {formatAmount(amount)}
+          </Text>
+          {record.vat_amount && record.vat_amount > 0 && (
+            <Tooltip title={`НДС ${record.vat_rate || 0}%: ${formatAmount(record.vat_amount)}`}>
+              <Text type="secondary" style={{ fontSize: '11px' }}>
+                без НДС: {formatAmount(Number(amount) - Number(record.vat_amount))}
+              </Text>
+            </Tooltip>
+          )}
+        </Space>
       ),
       sorter: (a, b) => Number(a.amount) - Number(b.amount),
+    },
+    {
+      title: 'НДС',
+      key: 'vat',
+      width: 100,
+      align: 'right',
+      render: (_, record) => {
+        if (!record.vat_amount || record.vat_amount === 0) {
+          return <Text type="secondary" style={{ fontSize: '11px' }}>—</Text>
+        }
+        return (
+          <Space direction="vertical" size={0} style={{ alignItems: 'flex-end' }}>
+            <Tooltip title={`Ставка НДС: ${record.vat_rate || 0}%`}>
+              <Tag color="blue" style={{ margin: 0 }}>
+                {record.vat_rate || 0}%
+              </Tag>
+            </Tooltip>
+            <Text style={{ fontSize: '11px' }}>
+              {formatAmount(record.vat_amount)}
+            </Text>
+          </Space>
+        )
+      },
     },
     {
       title: 'Контрагент',
@@ -454,7 +668,7 @@ export default function BankTransactionsPage() {
       title: 'Категория',
       dataIndex: 'category_name',
       key: 'category_name',
-      width: 200,
+      width: 160,
       render: (name, record) => {
         const confidenceBadge = record.category_confidence ? (
           <Tooltip title={`Уверенность AI: ${(record.category_confidence * 100).toFixed(0)}%`}>
@@ -474,14 +688,14 @@ export default function BankTransactionsPage() {
                 <Tag
                   color="green"
                   style={{
-                    maxWidth: 160,
+                    maxWidth: 140,
                     display: 'inline-flex',
                     alignItems: 'center',
                     overflow: 'hidden',
                   }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {name}
+                    {truncateCategoryName(name)}
                   </span>
                 </Tag>
               </Tooltip>
@@ -496,14 +710,14 @@ export default function BankTransactionsPage() {
                 color="orange"
                 style={{
                   cursor: 'pointer',
-                  maxWidth: 180,
+                  maxWidth: 140,
                   display: 'inline-flex',
                   alignItems: 'center',
                 }}
                 onClick={() => openCategorizeDrawer(record)}
               >
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {record.suggested_category_name}
+                  {truncateCategoryName(record.suggested_category_name)}
                 </span>
                 <span style={{ marginLeft: 4 }}>?</span>
               </Tag>
@@ -577,7 +791,12 @@ export default function BankTransactionsPage() {
             hoverable
           >
             <Statistic
-              title="Расход"
+              title={
+                <Space size={4}>
+                  <span>Расход</span>
+                  {activeQuickFilter === 'debit' && <Tag color="red" style={{ fontSize: '10px', margin: 0 }}>фильтр</Tag>}
+                </Space>
+              }
               value={stats?.total_debit || 0}
               precision={2}
               prefix={<ArrowDownOutlined style={{ color: '#cf1322' }} />}
@@ -598,7 +817,12 @@ export default function BankTransactionsPage() {
             hoverable
           >
             <Statistic
-              title="Приход"
+              title={
+                <Space size={4}>
+                  <span>Приход</span>
+                  {activeQuickFilter === 'credit' && <Tag color="green" style={{ fontSize: '10px', margin: 0 }}>фильтр</Tag>}
+                </Space>
+              }
               value={stats?.total_credit || 0}
               precision={2}
               prefix={<ArrowUpOutlined style={{ color: '#3f8600' }} />}
@@ -619,7 +843,12 @@ export default function BankTransactionsPage() {
             hoverable
           >
             <Statistic
-              title="Требуют проверки"
+              title={
+                <Space size={4}>
+                  <span>Требуют проверки</span>
+                  {activeQuickFilter === 'needs_review' && <Tag color="orange" style={{ fontSize: '10px', margin: 0 }}>фильтр</Tag>}
+                </Space>
+              }
               value={stats?.needs_review || 0}
               prefix={<ExclamationCircleOutlined style={{ color: '#faad14' }} />}
               valueStyle={{ color: stats?.needs_review ? '#faad14' : undefined }}
@@ -638,14 +867,93 @@ export default function BankTransactionsPage() {
             transactionType={filters.transaction_type}
             status={filters.status}
             selectedAccount={filters.account_number}
-            onAccountSelect={(accountNumber) => {
-              setFilters((prev) => ({ ...prev, account_number: accountNumber }))
+            selectedOrganizationId={filters.organization_id}
+            onAccountSelect={(accountNumber, organizationId) => {
+              setFilters((prev) => ({
+                ...prev,
+                account_number: accountNumber,
+                organization_id: organizationId,
+              }))
             }}
           />
         </Col>
 
         {/* Right column - Filters and Table */}
         <Col xs={24} md={18} lg={20}>
+          {/* Active Filters Indicator */}
+          {hasActiveFilters && (
+            <Card size="small" style={{ marginBottom: 8, background: '#f0f5ff', borderColor: '#1890ff' }}>
+              <Space wrap size={[8, 8]}>
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  <strong>Активные фильтры:</strong>
+                </Text>
+                {filters.account_number && (
+                  <Tag
+                    closable
+                    onClose={() => setFilters((prev) => ({ ...prev, account_number: undefined, organization_id: undefined }))}
+                    color="blue"
+                  >
+                    Счёт: {filters.account_number}
+                  </Tag>
+                )}
+                {filters.search && (
+                  <Tag
+                    closable
+                    onClose={() => setFilters((prev) => ({ ...prev, search: undefined }))}
+                    color="blue"
+                  >
+                    Поиск: {filters.search}
+                  </Tag>
+                )}
+                {filters.status && (
+                  <Tag
+                    closable
+                    onClose={() => setFilters((prev) => ({ ...prev, status: undefined }))}
+                    color="blue"
+                  >
+                    Статус: {statusLabels[filters.status]}
+                  </Tag>
+                )}
+                {filters.only_unprocessed && (
+                  <Tag
+                    closable
+                    onClose={() => setFilters((prev) => ({ ...prev, only_unprocessed: undefined }))}
+                    color="orange"
+                  >
+                    Необработанные
+                  </Tag>
+                )}
+                {filters.transaction_type && (
+                  <Tag
+                    closable
+                    onClose={() => setFilters((prev) => ({ ...prev, transaction_type: undefined }))}
+                    color={filters.transaction_type === 'DEBIT' ? 'red' : 'green'}
+                  >
+                    {filters.transaction_type === 'DEBIT' ? 'Расход' : 'Приход'}
+                  </Tag>
+                )}
+                {filters.payment_source && (
+                  <Tag
+                    closable
+                    onClose={() => setFilters((prev) => ({ ...prev, payment_source: undefined }))}
+                    color="blue"
+                  >
+                    Источник: {filters.payment_source === 'BANK' ? 'Банк' : 'Касса'}
+                  </Tag>
+                )}
+                {(filters.date_from || filters.date_to) && (
+                  <Tag
+                    closable
+                    onClose={() => setFilters((prev) => ({ ...prev, date_from: undefined, date_to: undefined }))}
+                    color="blue"
+                  >
+                    Период: {filters.date_from || '...'} — {filters.date_to || '...'}
+                  </Tag>
+                )}
+              </Space>
+            </Card>
+          )}
+
           {/* Filters */}
           <Card style={{ marginBottom: 16 }}>
         <Row gutter={[16, 16]} align="middle">
@@ -655,6 +963,7 @@ export default function BankTransactionsPage() {
                 placeholder="Поиск..."
                 prefix={<SearchOutlined />}
                 style={{ width: 200 }}
+                value={filters.search}
                 onChange={(e) =>
                   setFilters((prev) => ({ ...prev, search: e.target.value }))
                 }
@@ -663,6 +972,7 @@ export default function BankTransactionsPage() {
               <Select
                 placeholder="Статус"
                 style={{ width: 160 }}
+                value={filters.status}
                 allowClear
                 onChange={(value) =>
                   setFilters((prev) => ({ ...prev, status: value }))
@@ -675,6 +985,7 @@ export default function BankTransactionsPage() {
               <Select
                 placeholder="Тип"
                 style={{ width: 120 }}
+                value={filters.transaction_type}
                 allowClear
                 onChange={(value) =>
                   setFilters((prev) => ({ ...prev, transaction_type: value }))
@@ -687,6 +998,7 @@ export default function BankTransactionsPage() {
               <Select
                 placeholder="Источник"
                 style={{ width: 120 }}
+                value={filters.payment_source}
                 allowClear
                 onChange={(value) =>
                   setFilters((prev) => ({ ...prev, payment_source: value }))
@@ -696,23 +1008,16 @@ export default function BankTransactionsPage() {
                   { value: 'CASH', label: 'Касса' },
                 ]}
               />
-              <Select
+              <CategoryTreeSelect
                 placeholder="Категория"
-                style={{ width: 200 }}
-                allowClear
-                showSearch
-                filterOption={(input, option) =>
-                  (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                }
+                style={{ width: 220 }}
                 onChange={(value) =>
                   setFilters((prev) => ({ ...prev, category_id: value }))
                 }
-                options={categories.map((cat) => ({
-                  value: cat.id,
-                  label: cat.name,
-                }))}
+                value={filters.category_id}
               />
               <RangePicker
+                value={filters.date_from && filters.date_to ? [dayjs(filters.date_from), dayjs(filters.date_to)] : null}
                 onChange={(dates) => {
                   setFilters((prev) => ({
                     ...prev,
@@ -721,19 +1026,25 @@ export default function BankTransactionsPage() {
                   }))
                 }}
               />
+              {hasActiveFilters && (
+                <Button
+                  icon={<ClearOutlined />}
+                  onClick={handleClearAllFilters}
+                  type="dashed"
+                  danger
+                >
+                  Сбросить все фильтры
+                </Button>
+              )}
             </Space>
           </Col>
           <Col>
             <Space>
               {selectedRowKeys.length > 0 && (
                 <>
-                  <Select
+                  <CategoryTreeSelect
                     placeholder="Назначить категорию"
-                    style={{ width: 200 }}
-                    showSearch
-                    filterOption={(input, option) =>
-                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                    }
+                    style={{ width: 220 }}
                     onChange={(value) => {
                       if (value) {
                         Modal.confirm({
@@ -742,10 +1053,6 @@ export default function BankTransactionsPage() {
                         })
                       }
                     }}
-                    options={categories.map((cat) => ({
-                      value: cat.id,
-                      label: cat.name,
-                    }))}
                   />
                   <Button
                     icon={<CheckCircleOutlined />}
@@ -793,6 +1100,29 @@ export default function BankTransactionsPage() {
               >
                 Обновить
               </Button>
+              <Popconfirm
+                title={
+                  <div>
+                    <div>Удалить все транзакции?</div>
+                    <div style={{ fontSize: '12px', color: '#999', marginTop: 4 }}>
+                      {totalTransactions > 0 ? `Будет удалено ${totalTransactions} операций` : 'Нет операций для удаления'}
+                    </div>
+                  </div>
+                }
+                onConfirm={() => deleteByFilterMutation.mutate()}
+                okText="Да, удалить всё"
+                cancelText="Отмена"
+                okButtonProps={{ danger: true }}
+              >
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  loading={deleteByFilterMutation.isPending}
+                  disabled={totalTransactions === 0}
+                >
+                  Удалить все ({totalTransactions})
+                </Button>
+              </Popconfirm>
             </Space>
           </Col>
         </Row>
@@ -807,9 +1137,20 @@ export default function BankTransactionsPage() {
           loading={isLoading}
           rowSelection={rowSelection}
           pagination={{
-            pageSize: 50,
+            current: currentPage,
+            pageSize: pageSize,
+            total: totalTransactions,
             showSizeChanger: true,
             showTotal: (total) => `Всего: ${total}`,
+            onChange: (page, size) => {
+              setCurrentPage(page)
+              setPageSize(size || 50)
+              setFilters((prev) => ({
+                ...prev,
+                limit: size || 50,
+                offset: ((page - 1) * (size || 50)),
+              }))
+            },
           }}
           scroll={{ x: 1500 }}
           size="middle"
@@ -843,6 +1184,13 @@ export default function BankTransactionsPage() {
                   <div style={{ color: selectedTransaction.transaction_type === 'DEBIT' ? '#cf1322' : '#3f8600', fontWeight: 'bold' }}>
                     {formatAmount(selectedTransaction.amount)}
                   </div>
+                  {selectedTransaction.vat_amount && selectedTransaction.vat_amount > 0 && (
+                    <div style={{ fontSize: '11px', color: '#8c8c8c' }}>
+                      НДС {selectedTransaction.vat_rate}%: {formatAmount(selectedTransaction.vat_amount)}
+                      <br />
+                      Без НДС: {formatAmount(Number(selectedTransaction.amount) - Number(selectedTransaction.vat_amount))}
+                    </div>
+                  )}
                 </Col>
                 <Col span={24}>
                   <Text type="secondary">Контрагент:</Text>
@@ -906,18 +1254,41 @@ export default function BankTransactionsPage() {
                 label="Категория"
                 rules={[{ required: true, message: 'Выберите категорию' }]}
               >
-                <Select
-                  showSearch
+                <CategoryTreeSelect
                   placeholder="Выберите категорию"
-                  filterOption={(input, option) =>
-                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                  }
-                  options={categories.map((cat) => ({
-                    value: cat.id,
-                    label: cat.name,
-                  }))}
                 />
               </Form.Item>
+
+              {/* VAT Fields */}
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item name="vat_rate" label="Ставка НДС (%)">
+                    <Select
+                      placeholder="Выберите ставку"
+                      allowClear
+                      options={[
+                        { label: '0%', value: 0 },
+                        { label: '10%', value: 10 },
+                        { label: '20%', value: 20 },
+                      ]}
+                      onChange={(rate) => {
+                        if (rate && selectedTransaction) {
+                          const vatAmount = (Number(selectedTransaction.amount) * rate) / (100 + rate)
+                          form.setFieldsValue({ vat_amount: Number(vatAmount.toFixed(2)) })
+                        } else {
+                          form.setFieldsValue({ vat_amount: undefined })
+                        }
+                      }}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="vat_amount" label="Сумма НДС (₽)">
+                    <Input type="number" step="0.01" placeholder="0.00" />
+                  </Form.Item>
+                </Col>
+              </Row>
+
               <Form.Item name="notes" label="Примечание">
                 <Input.TextArea rows={3} placeholder="Дополнительные заметки..." />
               </Form.Item>
@@ -1129,6 +1500,23 @@ export default function BankTransactionsPage() {
           </div>
         )}
       </Drawer>
+
+      {/* Модалка предложений правил */}
+      <RuleSuggestionsModal
+        visible={ruleSuggestionsVisible}
+        suggestions={ruleSuggestions}
+        onClose={() => {
+          setRuleSuggestionsVisible(false)
+          setRuleSuggestions(null)
+        }}
+        onRuleCreated={() => {
+          // Обновляем данные после создания правила
+          queryClient.invalidateQueries({ queryKey: ['categorization-rules'] })
+          // Обновляем транзакции если правило было применено к существующим
+          queryClient.invalidateQueries({ queryKey: ['bank-transactions'] })
+          queryClient.invalidateQueries({ queryKey: ['bank-transactions-stats'] })
+        }}
+      />
     </div>
   )
 }

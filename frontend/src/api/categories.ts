@@ -6,15 +6,25 @@ export interface Category {
   type: 'OPEX' | 'CAPEX'
   description: string | null
   parent_id: number | null
+  is_folder: boolean
+  code_1c: string | null
+  external_id_1c: string | null
+  order_index: number | null
   is_active: boolean
+  created_at: string | null
+  updated_at: string | null
 }
 
-export const getCategories = async (params?: { department_id?: number; is_active?: boolean }): Promise<Category[]> => {
+export interface CategoryTreeNode extends Category {
+  children: CategoryTreeNode[]
+}
+
+export const getCategories = async (params?: { type?: string; is_active?: boolean; search?: string }): Promise<Category[]> => {
   const response = await apiClient.get('/categories', { params })
   return response.data
 }
 
-export const getCategoryTree = async (params?: { department_id?: number; type?: string }): Promise<Category[]> => {
+export const getCategoryTree = async (params?: { type?: string }): Promise<CategoryTreeNode[]> => {
   const response = await apiClient.get('/categories/tree', { params })
   return response.data
 }

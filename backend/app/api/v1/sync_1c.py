@@ -246,11 +246,9 @@ def sync_categories(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Sync budget categories from 1C."""
+    """Sync budget categories from 1C with hierarchy support."""
     logger.info(f"=== SYNC CATEGORIES START ===")
     logger.info(f"User: {current_user.username}")
-
-    # Role check removed - all authenticated users can sync from 1C
 
     try:
         from app.db.models import BudgetCategory, ExpenseTypeEnum
@@ -265,12 +263,19 @@ def sync_categories(
         updated = 0
         errors = []
 
+        # Пустой GUID для корневых элементов
+        EMPTY_GUID = "00000000-0000-0000-0000-000000000000"
+
+        # Первый проход: создать/обновить все категории (без parent_id)
         for cat_doc in cat_docs:
             name = cat_doc.get("Description", "Unknown")
             try:
                 ref_key = cat_doc.get("Ref_Key")
                 if not ref_key:
                     continue
+
+                is_folder = cat_doc.get("IsFolder", False)
+                code_1c = cat_doc.get("Code", "")
 
                 # Check if exists
                 existing = db.query(BudgetCategory).filter(
@@ -280,6 +285,8 @@ def sync_categories(
                 if existing:
                     # Update
                     existing.name = name
+                    existing.is_folder = is_folder
+                    existing.code_1c = code_1c
                     updated += 1
                 else:
                     # Create
@@ -287,26 +294,54 @@ def sync_categories(
                         name=name,
                         type=ExpenseTypeEnum.OPEX,  # Default
                         external_id_1c=ref_key,
-                        is_folder=cat_doc.get("IsFolder", False)
+                        is_folder=is_folder,
+                        code_1c=code_1c
                     )
                     db.add(cat)
-                    db.flush()  # Flush to catch errors early
                     created += 1
 
             except Exception as e:
-                db.rollback()
                 logger.error(f"Error processing category '{name}': {e}")
                 errors.append(f"Cat '{name}': {str(e)}")
 
+        # Flush для получения id новых записей
+        db.flush()
+
+        # Второй проход: установить parent_id через Parent_Key
+        # Создаём маппинг external_id_1c -> id
+        all_categories = db.query(BudgetCategory).filter(
+            BudgetCategory.external_id_1c.isnot(None)
+        ).all()
+        ext_id_to_id = {cat.external_id_1c: cat.id for cat in all_categories}
+
+        parent_set = 0
+        for cat_doc in cat_docs:
+            ref_key = cat_doc.get("Ref_Key")
+            parent_key = cat_doc.get("Parent_Key")
+
+            if not ref_key:
+                continue
+
+            # Если есть родитель и это не пустой GUID
+            if parent_key and parent_key != EMPTY_GUID:
+                cat = db.query(BudgetCategory).filter(
+                    BudgetCategory.external_id_1c == ref_key
+                ).first()
+
+                if cat and parent_key in ext_id_to_id:
+                    cat.parent_id = ext_id_to_id[parent_key]
+                    parent_set += 1
+
         db.commit()
-        logger.info(f"=== SYNC CATEGORIES DONE: created={created}, updated={updated}, errors={len(errors)} ===")
+        logger.info(f"=== SYNC CATEGORIES DONE: created={created}, updated={updated}, parents_set={parent_set}, errors={len(errors)} ===")
 
         return Sync1CResult(
             success=True,
-            message=f"Synced categories: {created} created, {updated} updated",
+            message=f"Синхронизация категорий: {created} создано, {updated} обновлено, {parent_set} связей с родителями",
             statistics={
                 "created": created,
                 "updated": updated,
+                "parents_set": parent_set,
                 "total": len(cat_docs)
             },
             errors=errors
@@ -317,7 +352,7 @@ def sync_categories(
         db.rollback()
         return Sync1CResult(
             success=False,
-            message=f"Sync failed: {str(e)}",
+            message=f"Ошибка синхронизации: {str(e)}",
             errors=[str(e)]
         )
 
@@ -326,7 +361,7 @@ def sync_categories(
 
 
 @router.post("/bank-transactions/sync-async", response_model=AsyncSyncResponse)
-def start_async_bank_transactions_sync(
+async def start_async_bank_transactions_sync(
     sync_request: AsyncSyncRequest,
     current_user: User = Depends(get_current_active_user)
 ):
@@ -367,8 +402,56 @@ def start_async_bank_transactions_sync(
     )
 
 
+@router.post("/organizations/sync-async", response_model=AsyncSyncResponse)
+async def start_async_organizations_sync(
+    current_user: User = Depends(get_current_active_user)
+):
+    """Start async organizations sync."""
+    logger.info("=== ASYNC SYNC ORGANIZATIONS START ===")
+    logger.info(f"User: {current_user.username}")
+
+    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins and managers can sync from 1C"
+        )
+
+    task_id = AsyncSyncService.start_organizations_sync(user_id=current_user.id)
+
+    logger.info(f"Started async organizations sync task: {task_id}")
+
+    return AsyncSyncResponse(
+        task_id=task_id,
+        message=f"Organizations sync started. Track progress at /api/v1/tasks/{task_id}"
+    )
+
+
+@router.post("/categories/sync-async", response_model=AsyncSyncResponse)
+async def start_async_categories_sync(
+    current_user: User = Depends(get_current_active_user)
+):
+    """Start async categories sync."""
+    logger.info("=== ASYNC SYNC CATEGORIES START ===")
+    logger.info(f"User: {current_user.username}")
+
+    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins and managers can sync from 1C"
+        )
+
+    task_id = AsyncSyncService.start_categories_sync(user_id=current_user.id)
+
+    logger.info(f"Started async categories sync task: {task_id}")
+
+    return AsyncSyncResponse(
+        task_id=task_id,
+        message=f"Categories sync started. Track progress at /api/v1/tasks/{task_id}"
+    )
+
+
 @router.post("/contractors/sync-async", response_model=AsyncSyncResponse)
-def start_async_contractors_sync(
+async def start_async_contractors_sync(
     current_user: User = Depends(get_current_active_user)
 ):
     """Start async contractors sync (returns immediately with task ID)."""
@@ -388,4 +471,44 @@ def start_async_contractors_sync(
     return AsyncSyncResponse(
         task_id=task_id,
         message=f"Contractors sync started. Track progress at /api/v1/tasks/{task_id}"
+    )
+
+
+@router.post("/full/sync-async", response_model=AsyncSyncResponse)
+async def start_async_full_sync(
+    sync_request: AsyncSyncRequest,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Start full async sync (organizations, categories, bank transactions)."""
+    logger.info("=== ASYNC FULL SYNC START ===")
+    logger.info(f"User: {current_user.username}, Request: {sync_request}")
+
+    if current_user.role not in [UserRoleEnum.ADMIN, UserRoleEnum.MANAGER]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins and managers can sync from 1C"
+        )
+
+    if sync_request.date_from:
+        date_from = datetime.fromisoformat(sync_request.date_from.replace('Z', '+00:00')).date()
+    else:
+        date_from = date.today() - timedelta(days=30)
+
+    if sync_request.date_to:
+        date_to = datetime.fromisoformat(sync_request.date_to.replace('Z', '+00:00')).date()
+    else:
+        date_to = date.today()
+
+    task_id = AsyncSyncService.start_full_sync(
+        date_from=date_from,
+        date_to=date_to,
+        auto_classify=sync_request.auto_classify,
+        user_id=current_user.id
+    )
+
+    logger.info(f"Started async full sync task: {task_id}")
+
+    return AsyncSyncResponse(
+        task_id=task_id,
+        message=f"Full sync started. Track progress at /api/v1/tasks/{task_id}"
     )

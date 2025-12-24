@@ -45,7 +45,21 @@ const SyncSettingsPage: React.FC = () => {
     try {
       setLoading(true);
       const data = await syncSettingsApi.getSettings();
-      setSettings(data);
+
+      // Auto-refresh status if it's stuck in IN_PROGRESS
+      if (data.last_sync_status === 'IN_PROGRESS') {
+        try {
+          await syncSettingsApi.refreshSyncStatus();
+          // Reload settings after refresh
+          const updatedData = await syncSettingsApi.getSettings();
+          setSettings(updatedData);
+        } catch (refreshError) {
+          console.error('Failed to refresh status:', refreshError);
+          setSettings(data);
+        }
+      } else {
+        setSettings(data);
+      }
 
       // Determine sync mode
       if (data.sync_time_hour !== null) {
@@ -101,11 +115,46 @@ const SyncSettingsPage: React.FC = () => {
       const response = await syncSettingsApi.triggerSyncNow();
       message.success(response.message);
 
-      // Reload settings to show updated last sync info
-      setTimeout(() => {
-        loadSettings();
-        setSyncing(false);
-      }, 2000);
+      // Monitor task status
+      const taskId = response.task_id;
+      let attempts = 0;
+      const maxAttempts = 120; // 10 minutes max (5s interval)
+
+      const checkStatus = async () => {
+        try {
+          const taskStatus = await syncSettingsApi.getTaskStatus(taskId);
+
+          if (taskStatus.status === 'completed' || taskStatus.status === 'failed' || taskStatus.status === 'cancelled') {
+            // Task finished, reload settings
+            await loadSettings();
+            setSyncing(false);
+
+            if (taskStatus.status === 'completed') {
+              message.success('Синхронизация завершена успешно');
+            } else if (taskStatus.status === 'failed') {
+              message.error(`Синхронизация завершилась с ошибкой: ${taskStatus.error || 'Неизвестная ошибка'}`);
+            }
+          } else if (attempts < maxAttempts) {
+            // Still running, check again
+            attempts++;
+            setTimeout(checkStatus, 5000); // Check every 5 seconds
+          } else {
+            // Timeout
+            setSyncing(false);
+            await loadSettings();
+            message.warning('Превышено время ожидания. Проверьте статус синхронизации позже.');
+          }
+        } catch (error) {
+          console.error('Failed to check task status:', error);
+          // Still reload settings on error
+          await loadSettings();
+          setSyncing(false);
+        }
+      };
+
+      // Start checking after 2 seconds
+      setTimeout(checkStatus, 2000);
+
     } catch (error: any) {
       message.error('Не удалось запустить синхронизацию');
       console.error('Failed to trigger sync:', error);
@@ -277,7 +326,26 @@ const SyncSettingsPage: React.FC = () => {
                 <div>
                   <Text strong>Статус:</Text>
                   <br />
-                  {getStatusTag(settings.last_sync_status)}
+                  <Space>
+                    {getStatusTag(settings.last_sync_status)}
+                    {settings.last_sync_status === 'IN_PROGRESS' && (
+                      <Button
+                        size="small"
+                        type="link"
+                        onClick={async () => {
+                          try {
+                            await syncSettingsApi.refreshSyncStatus();
+                            await loadSettings();
+                            message.success('Статус обновлен');
+                          } catch (error) {
+                            message.error('Не удалось обновить статус');
+                          }
+                        }}
+                      >
+                        Обновить
+                      </Button>
+                    )}
+                  </Space>
                 </div>
 
                 {settings.last_sync_message && (

@@ -30,15 +30,18 @@ import {
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import dayjs from 'dayjs'
-import {
-  testConnection,
-  syncTransactions,
-  syncOrganizations,
-  syncCategories,
-  Sync1CResult,
-  getResultStats,
-} from '../api/sync1c'
+import { testConnection } from '../api/sync1c'
 import syncSettingsApi, { SyncSettings, SyncSettingsUpdate } from '../api/syncSettings'
+import TaskProgress from '../components/TaskProgress'
+import SyncHistory from '../components/SyncHistory'
+import {
+  startAsyncBankTransactionsSync,
+  startAsyncCategoriesSync,
+  startAsyncFullSync,
+  startAsyncOrganizationsSync,
+  TaskInfo,
+  TaskStatus,
+} from '../api/tasks'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
@@ -92,10 +95,17 @@ export default function Sync1CPage() {
     message: string
     server_info?: unknown
   } | null>(null)
+  const [activeTask, setActiveTask] = useState<{
+    id: string
+    title: string
+    type: TaskInfo['task_type']
+  } | null>(null)
+  const [showProgress, setShowProgress] = useState(false)
   const [syncResults, setSyncResults] = useState<{
-    transactions?: Sync1CResult
-    organizations?: Sync1CResult
-    categories?: Sync1CResult
+    transactions?: TaskInfo
+    organizations?: TaskInfo
+    categories?: TaskInfo
+    full?: TaskInfo
   }>({})
 
   // Fetch sync settings
@@ -164,96 +174,245 @@ export default function Sync1CPage() {
     }
   }
 
-  // Sync transactions mutation
-  const syncTransactionsMutation = useMutation({
+  const getTaskStatusTag = (status: TaskStatus) => {
+    switch (status) {
+      case 'completed':
+        return <Tag icon={<CheckCircleOutlined />} color="success">Завершено</Tag>
+      case 'failed':
+        return <Tag icon={<CloseCircleOutlined />} color="error">Ошибка</Tag>
+      case 'cancelled':
+        return <Tag color="warning">Отменено</Tag>
+      case 'running':
+        return <Tag icon={<LoadingOutlined />} color="processing">Выполняется</Tag>
+      default:
+        return <Tag color="default">В очереди</Tag>
+    }
+  }
+
+  const startTransactionsMutation = useMutation({
     mutationFn: () => {
       if (!dateRange) {
         throw new Error('Выберите период')
       }
-      return syncTransactions({
-        date_from: dateRange[0].format('YYYY-MM-DDTHH:mm:ss'),
-        date_to: dateRange[1].format('YYYY-MM-DDTHH:mm:ss'),
+      return startAsyncBankTransactionsSync({
+        date_from: dateRange[0].format('YYYY-MM-DD'),
+        date_to: dateRange[1].format('YYYY-MM-DD'),
+        auto_classify: true,
       })
     },
     onSuccess: (data) => {
-      setSyncResults((prev) => ({ ...prev, transactions: data }))
-      const stats = getResultStats(data)
-      message.success(`Синхронизировано: ${stats.created} создано, ${stats.updated} обновлено`)
+      setActiveTask({
+        id: data.task_id,
+        title: 'Синхронизация банковских операций',
+        type: 'sync_bank_transactions',
+      })
+      setShowProgress(true)
+      message.success('Фоновая синхронизация транзакций запущена')
     },
     onError: (error: unknown) => {
-      message.error(getErrorMessage(error, 'Ошибка синхронизации транзакций'))
+      message.error(getErrorMessage(error, 'Ошибка запуска синхронизации транзакций'))
     },
   })
 
-  // Sync organizations mutation
-  const syncOrganizationsMutation = useMutation({
-    mutationFn: () => syncOrganizations({}),
+  const startOrganizationsMutation = useMutation({
+    mutationFn: startAsyncOrganizationsSync,
     onSuccess: (data) => {
-      setSyncResults((prev) => ({ ...prev, organizations: data }))
-      const stats = getResultStats(data)
-      message.success(`Организации: ${stats.created} создано, ${stats.updated} обновлено`)
+      setActiveTask({
+        id: data.task_id,
+        title: 'Синхронизация организаций',
+        type: 'sync_organizations',
+      })
+      setShowProgress(true)
+      message.success('Фоновая синхронизация организаций запущена')
     },
     onError: (error: unknown) => {
-      message.error(getErrorMessage(error, 'Ошибка синхронизации организаций'))
+      message.error(getErrorMessage(error, 'Ошибка запуска синхронизации организаций'))
     },
   })
 
-  // Sync categories mutation
-  const syncCategoriesMutation = useMutation({
-    mutationFn: () => syncCategories({}),
+  const startCategoriesMutation = useMutation({
+    mutationFn: startAsyncCategoriesSync,
     onSuccess: (data) => {
-      setSyncResults((prev) => ({ ...prev, categories: data }))
-      const stats = getResultStats(data)
-      message.success(`Категории: ${stats.created} создано, ${stats.updated} обновлено`)
+      setActiveTask({
+        id: data.task_id,
+        title: 'Синхронизация категорий расходов',
+        type: 'sync_categories',
+      })
+      setShowProgress(true)
+      message.success('Фоновая синхронизация категорий запущена')
     },
     onError: (error: unknown) => {
-      message.error(getErrorMessage(error, 'Ошибка синхронизации категорий'))
+      message.error(getErrorMessage(error, 'Ошибка запуска синхронизации категорий'))
     },
   })
 
-  const handleSyncAll = async () => {
-    try {
-      // Sync all in sequence
-      await syncOrganizationsMutation.mutateAsync()
-      await syncCategoriesMutation.mutateAsync()
-      await syncTransactionsMutation.mutateAsync()
-      message.success('Полная синхронизация завершена!')
-    } catch {
-      message.error('Ошибка при синхронизации')
+  const startFullSyncMutation = useMutation({
+    mutationFn: () => {
+      if (!dateRange) {
+        throw new Error('Выберите период')
+      }
+      return startAsyncFullSync({
+        date_from: dateRange[0].format('YYYY-MM-DD'),
+        date_to: dateRange[1].format('YYYY-MM-DD'),
+        auto_classify: true,
+      })
+    },
+    onSuccess: (data) => {
+      setActiveTask({
+        id: data.task_id,
+        title: 'Полная синхронизация',
+        type: 'sync_full',
+      })
+      setShowProgress(true)
+      message.success('Полная синхронизация запущена')
+    },
+    onError: (error: unknown) => {
+      message.error(getErrorMessage(error, 'Ошибка запуска полной синхронизации'))
+    },
+  })
+
+  const handleTaskComplete = (task: TaskInfo) => {
+    setSyncResults((prev) => {
+      if (task.task_type === 'sync_bank_transactions') {
+        return { ...prev, transactions: task }
+      }
+      if (task.task_type === 'sync_organizations') {
+        return { ...prev, organizations: task }
+      }
+      if (task.task_type === 'sync_categories') {
+        return { ...prev, categories: task }
+      }
+      if (task.task_type === 'sync_full') {
+        return { ...prev, full: task }
+      }
+      return prev
+    })
+
+    setActiveTask(null)
+    setShowProgress(false)
+
+    if (task.status === 'completed') {
+      const resultMessage = (task.result as Record<string, unknown> | undefined)?.message
+      const content = typeof resultMessage === 'string'
+        ? resultMessage
+        : task.message || 'Синхронизация завершена'
+      message.success(content)
+    } else if (task.status === 'failed') {
+      message.error(task.error || 'Синхронизация завершилась с ошибкой')
+    } else if (task.status === 'cancelled') {
+      message.info('Задача синхронизации отменена')
     }
   }
 
-  const isAnySyncing =
-    syncTransactionsMutation.isPending ||
-    syncOrganizationsMutation.isPending ||
-    syncCategoriesMutation.isPending
+  const renderSyncResult = (task: TaskInfo | undefined, title: string) => {
+    if (!task) return null
 
-  const renderSyncResult = (result: Sync1CResult | undefined, title: string) => {
-    if (!result) return null
-
-    const stats = getResultStats(result)
+    const result = (task.result || {}) as Record<string, any>
+    const created = result.created ?? result.total_created ?? 0
+    const updated = result.updated ?? result.total_updated ?? 0
+    const skipped = result.total_skipped ?? result.skipped ?? 0
+    const totalProcessed =
+      result.total ??
+      result.total_fetched ??
+      result.total_processed ??
+      task.processed ??
+      created + updated + skipped
+    const errors = Array.isArray(result.errors) ? result.errors : []
+    const statusTag = getTaskStatusTag(task.status)
 
     return (
       <Card size="small" style={{ marginTop: 8 }}>
-        <Descriptions title={title} column={2} size="small">
-          <Descriptions.Item label="Обработано">
-            {stats.total_processed}
-          </Descriptions.Item>
-          <Descriptions.Item label="Создано">
-            <Tag color="green">{stats.created}</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="Обновлено">
-            <Tag color="blue">{stats.updated}</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="Пропущено">
-            <Tag color="default">{stats.skipped}</Tag>
-          </Descriptions.Item>
-          {result.errors && result.errors.length > 0 && (
-            <Descriptions.Item label="Ошибки" span={2}>
-              <Tag color="red">{result.errors.length}</Tag>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Space align="center">
+            {statusTag}
+            <Text type="secondary">
+              {result.message || task.message || 'Прогресс синхронизации'}
+            </Text>
+          </Space>
+          <Descriptions title={title} column={2} size="small">
+            <Descriptions.Item label="Обработано">
+              {totalProcessed}
             </Descriptions.Item>
+            <Descriptions.Item label="Создано">
+              <Tag color="green">{created}</Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Обновлено">
+              <Tag color="blue">{updated}</Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Пропущено">
+              <Tag color="default">{skipped}</Tag>
+            </Descriptions.Item>
+            {errors.length > 0 && (
+              <Descriptions.Item label="Ошибки" span={2}>
+                <Tag color="red">{errors.length}</Tag>
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+          {task.error && (
+            <Alert type="error" showIcon message="Ошибка" description={task.error} />
           )}
-        </Descriptions>
+        </Space>
+      </Card>
+    )
+  }
+
+  const renderFullSyncResult = (task: TaskInfo | undefined) => {
+    if (!task) return null
+
+    const result = (task.result || {}) as Record<string, any>
+    const statusTag = getTaskStatusTag(task.status)
+    const sections: Array<{ key: string; label: string }> = [
+      { key: 'organizations', label: 'Организации' },
+      { key: 'categories', label: 'Категории' },
+      { key: 'transactions', label: 'Транзакции' },
+    ]
+
+    return (
+      <Card size="small" style={{ marginTop: 12 }}>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Space align="center">
+            {statusTag}
+            <Text type="secondary">
+              {result.message || task.message || 'Полная синхронизация'}
+            </Text>
+          </Space>
+          {sections.map(({ key, label }) => {
+            const data = result[key]
+            if (!data) return null
+
+            const created = data.created ?? data.total_created ?? 0
+            const updated = data.updated ?? data.total_updated ?? 0
+            const skipped = data.total_skipped ?? data.skipped ?? 0
+            const total =
+              data.total ?? data.total_fetched ?? created + updated + skipped
+            const errorsCount = Array.isArray(data.errors) ? data.errors.length : 0
+
+            return (
+              <Descriptions key={key} title={label} column={2} size="small">
+                <Descriptions.Item label="Обработано">
+                  {total}
+                </Descriptions.Item>
+                <Descriptions.Item label="Создано">
+                  <Tag color="green">{created}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Обновлено">
+                  <Tag color="blue">{updated}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Пропущено">
+                  <Tag color="default">{skipped}</Tag>
+                </Descriptions.Item>
+                {errorsCount > 0 && (
+                  <Descriptions.Item label="Ошибки" span={2}>
+                    <Tag color="red">{errorsCount}</Tag>
+                  </Descriptions.Item>
+                )}
+              </Descriptions>
+            )
+          })}
+          {task.error && (
+            <Alert type="error" showIcon message="Ошибка" description={task.error} />
+          )}
+        </Space>
       </Card>
     )
   }
@@ -464,9 +623,9 @@ export default function Sync1CPage() {
               <Button
                 type="primary"
                 block
-                icon={<SyncOutlined spin={syncTransactionsMutation.isPending} />}
-                onClick={() => syncTransactionsMutation.mutate()}
-                loading={syncTransactionsMutation.isPending}
+                icon={<SyncOutlined spin={startTransactionsMutation.isPending} />}
+                onClick={() => startTransactionsMutation.mutate()}
+                loading={startTransactionsMutation.isPending}
                 disabled={!dateRange}
               >
                 Синхронизировать
@@ -495,9 +654,9 @@ export default function Sync1CPage() {
               <Button
                 type="primary"
                 block
-                icon={<SyncOutlined spin={syncOrganizationsMutation.isPending} />}
-                onClick={() => syncOrganizationsMutation.mutate()}
-                loading={syncOrganizationsMutation.isPending}
+                icon={<SyncOutlined spin={startOrganizationsMutation.isPending} />}
+                onClick={() => startOrganizationsMutation.mutate()}
+                loading={startOrganizationsMutation.isPending}
               >
                 Синхронизировать
               </Button>
@@ -525,9 +684,9 @@ export default function Sync1CPage() {
               <Button
                 type="primary"
                 block
-                icon={<SyncOutlined spin={syncCategoriesMutation.isPending} />}
-                onClick={() => syncCategoriesMutation.mutate()}
-                loading={syncCategoriesMutation.isPending}
+                icon={<SyncOutlined spin={startCategoriesMutation.isPending} />}
+                onClick={() => startCategoriesMutation.mutate()}
+                loading={startCategoriesMutation.isPending}
               >
                 Синхронизировать
               </Button>
@@ -552,36 +711,32 @@ export default function Sync1CPage() {
               <Button
                 type="primary"
                 size="large"
-                icon={<SyncOutlined spin={isAnySyncing} />}
-                onClick={handleSyncAll}
-                loading={isAnySyncing}
+                icon={<SyncOutlined spin={startFullSyncMutation.isPending} />}
+                onClick={() => startFullSyncMutation.mutate()}
+                loading={startFullSyncMutation.isPending}
                 disabled={!dateRange}
               >
                 Синхронизировать все
               </Button>
+              {renderFullSyncResult(syncResults.full)}
             </Space>
           </Col>
         </Row>
       </Card>
 
-      {/* Loading Overlay */}
-      {isAnySyncing && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(255, 255, 255, 0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-        >
-          <Spin size="large" tip="Синхронизация..." />
-        </div>
+      {/* Sync History */}
+      <SyncHistory limit={20} />
+
+      {activeTask && (
+        <TaskProgress
+          taskId={activeTask.id}
+          title={activeTask.title}
+          visible={showProgress}
+          onClose={() => setShowProgress(false)}
+          onComplete={handleTaskComplete}
+          useWebSocket
+          keepPollingWhenHidden
+        />
       )}
     </div>
   )

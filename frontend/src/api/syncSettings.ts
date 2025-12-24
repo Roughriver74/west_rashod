@@ -33,9 +33,16 @@ export interface TriggerSyncResponse {
 
 export interface TaskStatusResponse {
   task_id: string
-  status: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progress: number
+  processed: number
+  total: number
+  message: string
   result: any
-  traceback: string | null
+  error: string | null
+  created_at: string | null
+  started_at: string | null
+  completed_at: string | null
 }
 
 export const getSettings = async (): Promise<SyncSettings> => {
@@ -58,11 +65,17 @@ export const getTaskStatus = async (taskId: string): Promise<TaskStatusResponse>
   return response.data
 }
 
+export const refreshSyncStatus = async (): Promise<{ success: boolean; message: string; status?: string }> => {
+  const response = await apiClient.post('/sync-settings/refresh-status')
+  return response.data
+}
+
 const syncSettingsApi = {
   getSettings,
   updateSettings,
   triggerSyncNow,
   getTaskStatus,
+  refreshSyncStatus,
 }
 
 export default syncSettingsApi

@@ -98,59 +98,216 @@ def update_sync_settings(
 
 
 @router.post("/trigger-now")
-def trigger_sync_now(
+async def trigger_sync_now(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Manually trigger sync task immediately."""
-    # Role check removed - all authenticated users can trigger sync
+    import asyncio
+    from datetime import date, timedelta
+    from app.services.async_sync_service import AsyncSyncService
+    from app.services.sync_scheduler import sync_scheduler
 
     try:
-        from app.celery_app import sync_1c_transactions_task
+        # Get sync settings
+        settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
+        if not settings:
+            settings = SyncSettings(id=1)
+            db.add(settings)
+            db.commit()
+            db.refresh(settings)
 
-        # Trigger async task
-        task = sync_1c_transactions_task.delay()
+        # Calculate date range based on settings
+        date_to = date.today()
+        date_from = date_to - timedelta(days=settings.sync_days_back)
 
-        logger.info(f"Manual sync triggered by {current_user.username}, task_id: {task.id}")
+        # Start async sync task
+        task_id = AsyncSyncService.start_full_sync(
+            date_from=date_from,
+            date_to=date_to,
+            auto_classify=settings.auto_classify,
+            user_id=current_user.id
+        )
+
+        # Update sync settings
+        settings.last_sync_started_at = datetime.utcnow()
+        settings.last_sync_status = "IN_PROGRESS"
+        settings.last_sync_message = "Синхронизация запущена вручную"
+        db.commit()
+
+        # Start monitoring task completion in background
+        asyncio.create_task(sync_scheduler._monitor_task_completion(task_id))
+
+        logger.info(f"Manual sync triggered by {current_user.username}, task_id: {task_id}")
 
         return {
             "success": True,
-            "message": "Sync task started",
-            "task_id": task.id
+            "message": "Синхронизация запущена",
+            "task_id": task_id
         }
 
     except Exception as e:
         logger.error(f"Failed to trigger sync: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to trigger sync: {str(e)}"
+            detail=f"Не удалось запустить синхронизацию: {str(e)}"
+        )
+
+
+@router.post("/refresh-status")
+def refresh_sync_status(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Refresh sync status based on latest completed task."""
+    from app.db.models import BackgroundTask, BackgroundTaskStatusEnum
+    import json
+
+    try:
+        # Get sync settings
+        settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
+
+        if not settings:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Настройки синхронизации не найдены"
+            )
+
+        if settings.last_sync_status != "IN_PROGRESS":
+            return {
+                "success": True,
+                "message": "Статус уже актуален",
+                "status": settings.last_sync_status
+            }
+
+        # Find latest completed full sync task
+        latest_task = db.query(BackgroundTask).filter(
+            BackgroundTask.task_type == "sync_full",
+            BackgroundTask.status.in_([
+                BackgroundTaskStatusEnum.COMPLETED,
+                BackgroundTaskStatusEnum.FAILED,
+                BackgroundTaskStatusEnum.CANCELLED
+            ])
+        ).order_by(BackgroundTask.created_at.desc()).first()
+
+        if not latest_task:
+            return {
+                "success": False,
+                "message": "Не найдено завершенных задач синхронизации"
+            }
+
+        # Update settings
+        settings.last_sync_completed_at = latest_task.completed_at or datetime.utcnow()
+
+        if latest_task.status == BackgroundTaskStatusEnum.COMPLETED:
+            settings.last_sync_status = "SUCCESS"
+
+            # Parse result
+            if latest_task.result:
+                try:
+                    result = json.loads(latest_task.result)
+                    tx = result.get('transactions', {})
+                    settings.last_sync_message = (
+                        f"Создано: {tx.get('total_created', 0)}, "
+                        f"Обновлено: {tx.get('total_updated', 0)}, "
+                        f"Пропущено: {tx.get('total_skipped', 0)}"
+                    )
+                except:
+                    settings.last_sync_message = latest_task.message or "Синхронизация завершена"
+            else:
+                settings.last_sync_message = latest_task.message or "Синхронизация завершена"
+
+        elif latest_task.status == BackgroundTaskStatusEnum.FAILED:
+            settings.last_sync_status = "FAILED"
+            settings.last_sync_message = f"Ошибка: {latest_task.error or 'Неизвестная ошибка'}"
+        else:
+            settings.last_sync_status = "FAILED"
+            settings.last_sync_message = "Синхронизация отменена"
+
+        db.commit()
+
+        logger.info(f"Sync status refreshed by {current_user.username}: {settings.last_sync_status}")
+
+        return {
+            "success": True,
+            "message": "Статус обновлен",
+            "status": settings.last_sync_status
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to refresh sync status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Не удалось обновить статус: {str(e)}"
         )
 
 
 @router.get("/task-status/{task_id}")
 def get_task_status(
     task_id: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
 ):
     """Get status of a sync task."""
-    # Role check removed - all authenticated users can check task status
+    from app.services.background_tasks import task_manager, TaskStatus
 
     try:
-        from app.celery_app import celery_app
-        from celery.result import AsyncResult
+        task = task_manager.get_task(task_id)
 
-        result = AsyncResult(task_id, app=celery_app)
+        if not task:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Задача с ID {task_id} не найдена"
+            )
+
+        # Update SyncSettings if task is completed and settings are not updated
+        if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
+            settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
+            if settings and settings.last_sync_status == "IN_PROGRESS":
+                settings.last_sync_completed_at = datetime.utcnow()
+
+                if task.status == TaskStatus.COMPLETED:
+                    settings.last_sync_status = "SUCCESS"
+                    if task.result and isinstance(task.result, dict):
+                        tx = task.result.get('transactions', {})
+                        settings.last_sync_message = (
+                            f"Создано: {tx.get('total_created', 0)}, "
+                            f"Обновлено: {tx.get('total_updated', 0)}, "
+                            f"Пропущено: {tx.get('total_skipped', 0)}"
+                        )
+                    else:
+                        settings.last_sync_message = task.message or "Синхронизация завершена"
+                elif task.status == TaskStatus.FAILED:
+                    settings.last_sync_status = "FAILED"
+                    settings.last_sync_message = f"Ошибка: {task.error or 'Неизвестная ошибка'}"
+                else:
+                    settings.last_sync_status = "FAILED"
+                    settings.last_sync_message = "Синхронизация отменена"
+
+                db.commit()
+                logger.info(f"Updated SyncSettings from task-status endpoint for task {task_id}")
 
         return {
-            "task_id": task_id,
-            "status": result.state,
-            "result": result.result if result.ready() else None,
-            "traceback": result.traceback if result.failed() else None
+            "task_id": task.task_id,
+            "status": task.status.value,
+            "progress": task.progress,
+            "processed": task.processed,
+            "total": task.total,
+            "message": task.message,
+            "result": task.result,
+            "error": task.error,
+            "created_at": task.created_at.isoformat() if task.created_at else None,
+            "started_at": task.started_at.isoformat() if task.started_at else None,
+            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get task status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get task status: {str(e)}"
+            detail=f"Не удалось получить статус задачи: {str(e)}"
         )

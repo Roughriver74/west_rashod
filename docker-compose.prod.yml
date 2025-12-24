@@ -1,0 +1,114 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: west_rashod_prod_db
+    restart: always
+    privileged: true
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rashod_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rashod_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-west_rashod_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "54330:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rashod_user} -d ${POSTGRES_DB:-west_rashod_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - west_rashod_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: west_rashod_prod_redis
+    restart: always
+    privileged: true
+    ports:
+      - "6382:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - west_rashod_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: west_rashod_prod_backend
+    restart: always
+    privileged: true
+    env_file:
+      - ./deployment/.env.prod
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rashod_user}:${POSTGRES_PASSWORD:-rashod_pass}@db:5432/${POSTGRES_DB:-west_rashod_db}
+      DEBUG: "False"
+      USE_REDIS: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8005:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             python scripts/create_admin.py || true &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+    networks:
+      - west_rashod_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://192.168.45.98:8005}
+    container_name: west_rashod_prod_frontend
+    restart: always
+    privileged: true
+    ports:
+      - "5178:80"
+    depends_on:
+      - backend
+    networks:
+      - west_rashod_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: west_rashod_prod_nginx
+    restart: always
+    privileged: true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deployment/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deployment/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./deployment/nginx/ssl:/etc/nginx/ssl:ro
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - west_rashod_network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  west_rashod_network:
+    driver: bridge
