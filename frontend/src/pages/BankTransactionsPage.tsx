@@ -553,7 +553,16 @@ export default function BankTransactionsPage() {
       dataIndex: 'transaction_date',
       key: 'transaction_date',
       width: 100,
-      render: (date) => dayjs(date).format('DD.MM.YYYY'),
+      render: (date, record) => (
+        <Space direction="vertical" size={2}>
+          <Text>{dayjs(date).format('DD.MM.YYYY')}</Text>
+          {record.document_number && (
+            <Text type="secondary" style={{ fontSize: '11px' }}>
+              № {record.document_number}
+            </Text>
+          )}
+        </Space>
+      ),
       sorter: (a, b) => dayjs(a.transaction_date).unix() - dayjs(b.transaction_date).unix(),
     },
     {

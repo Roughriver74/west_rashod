@@ -746,14 +746,14 @@ class BankTransaction1CImporter:
 
         return result
 
-    def _parse_date(self, date_str: Optional[str]) -> Optional[date]:
-        """Парсинг даты из строки ISO формата"""
+    def _parse_date(self, date_str: Optional[str]) -> Optional[datetime]:
+        """Парсинг даты и времени из строки ISO формата"""
         if not date_str or date_str == '0001-01-01T00:00:00':
             return None
 
         try:
             dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-            return dt.date()
+            return dt
         except (ValueError, AttributeError):
             return None
 
@@ -762,6 +762,8 @@ class BankTransaction1CImporter:
         Извлечение НДС из текста назначения платежа.
 
         Ищет паттерны:
+        - "НДС не облагается" / "НДС НЕ ОБЛАГАЕТСЯ"
+        - "В т.ч. НДС (20%) 900,00 руб."
         - "В Т.Ч. НДС 5953-49"
         - "В ТОМ ЧИСЛЕ НДС - 32971.00 рублей"
         - "НДС 20% 1000"
@@ -775,6 +777,29 @@ class BankTransaction1CImporter:
             return None, None
 
         text_upper = text.upper()
+
+        # Паттерн 0: "НДС не облагается" или "НДС НЕ ОБЛАГАЕТСЯ" - ставка 0%
+        pattern0 = r'НДС\s+НЕ\s+ОБЛАГАЕТСЯ'
+        if re.search(pattern0, text_upper):
+            return None, Decimal('0')
+
+        # Паттерн 0.5: "В т.ч. НДС (20%) 900,00 руб." - процент в скобках
+        # "В ТОМ ЧИСЛЕ НДС (10%) 224,55 руб."
+        pattern05 = r'(?:В\s+ТОМ\s+ЧИСЛЕ|В\s+Т\.?\s*Ч\.?)\s+НДС\s*\((\d+)%\)\s*([\d\s\.,\-]+)(?:РУБ|РУБЛЕЙ)?'
+        match = re.search(pattern05, text_upper)
+        if match:
+            rate_str = match.group(1)
+            amount_str = match.group(2).replace(' ', '').replace('-', '.').replace(',', '.')
+            # Удаляем множественные точки (если есть)
+            parts = amount_str.split('.')
+            if len(parts) > 2:
+                amount_str = ''.join(parts[:-1]) + '.' + parts[-1]
+            try:
+                vat_rate = Decimal(rate_str)
+                vat_amount = Decimal(amount_str)
+                return vat_amount, vat_rate
+            except (ValueError, Exception):
+                pass
 
         # Паттерн 1: "НДС 20% - 3344,56" или "НДС 10% 1000.00"
         # Ставка и сумма с опциональным дефисом между ними

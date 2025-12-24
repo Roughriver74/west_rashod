@@ -15,7 +15,7 @@ from app.db.models import (
 
 class BankTransactionBase(BaseModel):
     """Base bank transaction schema."""
-    transaction_date: date
+    transaction_date: datetime
     amount: Decimal
     transaction_type: BankTransactionTypeEnum = BankTransactionTypeEnum.DEBIT
 
@@ -42,7 +42,7 @@ class BankTransactionBase(BaseModel):
 
     # Document
     document_number: Optional[str] = None
-    document_date: Optional[date] = None
+    document_date: Optional[datetime] = None
 
     # Classification
     category_id: Optional[int] = None
@@ -76,7 +76,7 @@ class BankTransactionCreate(BankTransactionBase):
 
 class BankTransactionUpdate(BaseModel):
     """Update bank transaction schema."""
-    transaction_date: Optional[date] = None
+    transaction_date: Optional[datetime] = None
     amount: Optional[Decimal] = None
     transaction_type: Optional[BankTransactionTypeEnum] = None
     vat_amount: Optional[Decimal] = None
@@ -93,7 +93,7 @@ class BankTransactionUpdate(BaseModel):
     organization_id: Optional[int] = None
     account_number: Optional[str] = None
     document_number: Optional[str] = None
-    document_date: Optional[date] = None
+    document_date: Optional[datetime] = None
     category_id: Optional[int] = None
     status: Optional[BankTransactionStatusEnum] = None
     notes: Optional[str] = None
@@ -331,8 +331,8 @@ class CounterpartyBreakdown(BaseModel):
     transaction_count: int
     total_amount: Decimal
     avg_amount: Decimal
-    first_transaction_date: date
-    last_transaction_date: date
+    first_transaction_date: datetime
+    last_transaction_date: datetime
     is_regular: bool = False
 
 
@@ -374,7 +374,7 @@ class AIPerformanceData(BaseModel):
 class LowConfidenceItem(BaseModel):
     """Transaction with low AI confidence."""
     transaction_id: int
-    transaction_date: date
+    transaction_date: datetime
     counterparty_name: str
     amount: Decimal
     payment_purpose: Optional[str] = None
@@ -406,7 +406,7 @@ class StatusTimelinePoint(BaseModel):
 class ConfidenceScatterPoint(BaseModel):
     """Scatter plot point for confidence analysis."""
     transaction_id: int
-    transaction_date: date
+    transaction_date: datetime
     counterparty_name: Optional[str] = None
     amount: Decimal
     category_confidence: Optional[float] = None
@@ -452,8 +452,8 @@ class ExhibitionData(BaseModel):
     transaction_count: int
     total_amount: Decimal
     avg_amount: Decimal
-    first_transaction_date: date
-    last_transaction_date: date
+    first_transaction_date: datetime
+    last_transaction_date: datetime
 
 
 class BankTransactionAnalytics(BaseModel):
@@ -532,7 +532,7 @@ class AccountGrouping(BaseModel):
     balance: Decimal
     needs_processing_count: int
     approved_count: int
-    last_transaction_date: Optional[date] = None
+    last_transaction_date: Optional[datetime] = None
 
 
 class AccountGroupingList(BaseModel):

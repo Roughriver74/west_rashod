@@ -19,6 +19,29 @@ def extract_vat_from_text(text: str) -> tuple[Optional[Decimal], Optional[Decima
 
     text_upper = text.upper()
 
+    # Паттерн 0: "НДС не облагается" или "НДС НЕ ОБЛАГАЕТСЯ" - ставка 0%
+    pattern0 = r'НДС\s+НЕ\s+ОБЛАГАЕТСЯ'
+    if re.search(pattern0, text_upper):
+        return None, Decimal('0')
+
+    # Паттерн 0.5: "В т.ч. НДС (20%) 900,00 руб." - процент в скобках
+    # "В ТОМ ЧИСЛЕ НДС (10%) 224,55 руб."
+    pattern05 = r'(?:В\s+ТОМ\s+ЧИСЛЕ|В\s+Т\.?\s*Ч\.?)\s+НДС\s*\((\d+)%\)\s*([\d\s\.,\-]+)(?:РУБ|РУБЛЕЙ)?'
+    match = re.search(pattern05, text_upper)
+    if match:
+        rate_str = match.group(1)
+        amount_str = match.group(2).replace(' ', '').replace('-', '.').replace(',', '.')
+        # Удаляем множественные точки (если есть)
+        parts = amount_str.split('.')
+        if len(parts) > 2:
+            amount_str = ''.join(parts[:-1]) + '.' + parts[-1]
+        try:
+            vat_rate = Decimal(rate_str)
+            vat_amount = Decimal(amount_str)
+            return vat_amount, vat_rate
+        except (ValueError, Exception):
+            pass
+
     # Паттерн 1: "НДС 20% - 3344,56" или "НДС 10% 1000.00"
     # Ставка и сумма с опциональным дефисом между ними
     pattern1 = r'НДС\s+(\d+)\s*%\s*-?\s*([\d\s\.,]+)(?:РУБ|РУБЛЕЙ)?'
@@ -115,6 +138,30 @@ test_cases = [
         'expected_amount': None,
         'expected_rate': Decimal('20'),
         'description': 'Только ставка'
+    },
+    {
+        'text': 'Возврат денежных средств по акту сверки взаиморасчетов. В т.ч. НДС (20%) 900,00 руб.',
+        'expected_amount': Decimal('900.00'),
+        'expected_rate': Decimal('20'),
+        'description': 'НДС с процентом в скобках (20%)'
+    },
+    {
+        'text': 'Возврат денежных средств по акту сверки взаиморасчетов. В т.ч. НДС (10%) 224,55 руб.',
+        'expected_amount': Decimal('224.55'),
+        'expected_rate': Decimal('10'),
+        'description': 'НДС с процентом в скобках (10%)'
+    },
+    {
+        'text': 'СЧЕТ 166227 ОТ 23.12.2025. НДС НЕ ОБЛАГАЕТСЯ',
+        'expected_amount': None,
+        'expected_rate': Decimal('0'),
+        'description': 'НДС не облагается (0%)'
+    },
+    {
+        'text': 'Зачисление средств по операциям эквайринга. Мерчант №551000454440. Комиссия 747,50. Возврат покупки 0.00/0.00.НДС не облагается.',
+        'expected_amount': None,
+        'expected_rate': Decimal('0'),
+        'description': 'НДС не облагается в конце текста'
     },
 ]
 

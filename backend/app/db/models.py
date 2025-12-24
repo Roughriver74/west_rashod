@@ -303,7 +303,7 @@ class BankTransaction(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     # Basic transaction info
-    transaction_date = Column(Date, nullable=False, index=True)
+    transaction_date = Column(DateTime, nullable=False, index=True)
     amount = Column(Numeric(15, 2), nullable=False)
     transaction_type = Column(Enum(BankTransactionTypeEnum), nullable=False,
                              default=BankTransactionTypeEnum.DEBIT, index=True)
@@ -337,7 +337,7 @@ class BankTransaction(Base):
 
     # Document info
     document_number = Column(String(50), nullable=True, index=True)
-    document_date = Column(Date, nullable=True)
+    document_date = Column(DateTime, nullable=True)
 
     # AI Classification
     category_id = Column(Integer, ForeignKey("budget_categories.id"), nullable=True, index=True)

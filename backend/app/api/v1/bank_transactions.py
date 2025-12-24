@@ -727,8 +727,8 @@ def get_analytics(
             transaction_count=data['count'],
             total_amount=data['total'],
             avg_amount=data['total'] / data['count'] if data['count'] > 0 else Decimal(0),
-            first_transaction_date=data['first_date'] or date.today(),
-            last_transaction_date=data['last_date'] or date.today(),
+            first_transaction_date=data['first_date'] or datetime.now(),
+            last_transaction_date=data['last_date'] or datetime.now(),
             is_regular=data['is_regular']
         ))
 
@@ -807,9 +807,10 @@ def get_analytics(
     # ====== Activity Heatmap (Day of Week × Hour) ======
     heatmap_dict = defaultdict(lambda: {'count': 0, 'total': Decimal(0)})
     for t in transactions:
-        day_of_week = t.transaction_date.weekday()  # 0=Monday, 6=Sunday
-        # Extract hour from created_at if available, otherwise use 12 as default
-        hour = t.created_at.hour if t.created_at else 12
+        # Используем document_date (дата из 1С), если доступна, иначе transaction_date
+        dt = t.document_date if t.document_date else t.transaction_date
+        day_of_week = dt.weekday()  # 0=Monday, 6=Sunday
+        hour = dt.hour
         key = (day_of_week, hour)
         heatmap_dict[key]['count'] += 1
         heatmap_dict[key]['total'] += t.amount
@@ -965,8 +966,8 @@ def get_analytics(
             transaction_count=data['count'],
             total_amount=data['total'],
             avg_amount=data['total'] / data['count'] if data['count'] > 0 else Decimal(0),
-            first_transaction_date=data['first_date'] or date.today(),
-            last_transaction_date=data['last_date'] or date.today()
+            first_transaction_date=data['first_date'] or datetime.now(),
+            last_transaction_date=data['last_date'] or datetime.now()
         ))
 
     return BankTransactionAnalytics(
