@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6380
 
+    # FTP Settings (for fin module)
+    FTP_HOST: str = ""
+    FTP_PORT: int = 21
+    FTP_USER: str = ""
+    FTP_PASSWORD: str = ""
+    FTP_DIRECTORY: str = "/"
+    FTP_DOWNLOAD_DIR: str = "/tmp/ftp_downloads"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

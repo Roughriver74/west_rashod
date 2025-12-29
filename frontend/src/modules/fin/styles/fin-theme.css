@@ -1,0 +1,217 @@
+.fin-shell {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  min-width: 0;
+}
+
+.fin-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.fin-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  padding: 22px 24px;
+  background: linear-gradient(120deg, #0f172a 0%, #0ea5e9 50%, #22d3ee 100%);
+  box-shadow: 0 14px 38px rgba(15, 23, 42, 0.18);
+  color: #f8fbff;
+}
+
+.fin-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.16), transparent 35%),
+    radial-gradient(circle at 80% 0%, rgba(255, 255, 255, 0.14), transparent 30%);
+  pointer-events: none;
+}
+
+.fin-hero__grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+  align-items: center;
+  z-index: 1;
+}
+
+@media (max-width: 1100px) {
+  .fin-hero__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fin-hero__title {
+  margin: 4px 0;
+  color: #f8fbff;
+}
+
+.fin-hero__subtitle {
+  color: #d7e8ff;
+}
+
+.fin-hero__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.fin-hero__highlights {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.fin-hero__highlight {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(4px);
+}
+
+.fin-hero__value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.fin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.fin-kpi-card {
+  height: 100%;
+  border-radius: 14px;
+  border: 1px solid #e5eaf1;
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+.fin-kpi-card__meta {
+  margin-top: 6px;
+  color: #6b7385;
+  font-size: 12px;
+}
+
+.fin-section-card {
+  border-radius: 16px !important;
+  border: 1px solid #e5eaf1;
+  box-shadow: 0 12px 42px rgba(15, 23, 42, 0.08);
+}
+
+.fin-section-card .ant-card-head {
+  border-bottom: 1px solid #eef1f7;
+  margin: 0 12px;
+  padding: 12px 0;
+}
+
+.fin-section-card .ant-card-body {
+  padding: 16px;
+}
+
+.fin-filter-card {
+  border-radius: 12px !important;
+  border: 1px solid #e5eaf1;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 70%);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.fin-filter-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.fin-filter-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.fin-filter-quick {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed #d9e2f3;
+  background: #f1f6ff;
+}
+
+.fin-filter-quick__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.fin-sider {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 12px 28px rgba(5, 19, 39, 0.6);
+}
+
+.fin-sider__brand {
+  padding: 18px 16px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.fin-sider__title {
+  color: #e8f1ff;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.fin-sider__subtitle {
+  color: rgba(232, 241, 255, 0.7);
+  font-size: 12px;
+}
+
+.fin-nav-group {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.ant-menu-inline-collapsed .fin-nav-group {
+  display: none;
+}
+
+.ant-menu-dark .ant-menu-submenu-title .ant-menu-title-content {
+  font-weight: 600;
+}
+
+.ant-menu-dark .ant-menu-item {
+  border-radius: 10px;
+  margin-inline: 10px;
+}
+
+.ant-menu-dark .ant-menu-item-selected {
+  background: linear-gradient(90deg, rgba(24, 144, 255, 0.16), rgba(24, 144, 255, 0.32));
+  color: #fff;
+}
+
+.fin-quick-links .ant-card {
+  border-radius: 12px;
+  border: 1px solid #e5eaf1;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fin-quick-links .ant-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+}

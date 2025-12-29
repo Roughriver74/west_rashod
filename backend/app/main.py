@@ -39,6 +39,9 @@ from app.api.v1.tasks import router as tasks_router
 from app.api.v1.websocket import router as websocket_router
 from app.api.v1.categorization_patterns import router as categorization_patterns_router
 
+# Fin module router
+from app.modules.fin.api.router import router as fin_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -179,6 +182,9 @@ app.include_router(sync_settings_router, prefix=settings.API_PREFIX)
 app.include_router(tasks_router, prefix=settings.API_PREFIX)
 app.include_router(websocket_router, prefix=settings.API_PREFIX)
 app.include_router(categorization_patterns_router, prefix=settings.API_PREFIX)
+
+# Fin module (Financial Data Warehouse)
+app.include_router(fin_router, prefix=f"{settings.API_PREFIX}/fin", tags=["Fin Module"])
 
 
 if __name__ == "__main__":

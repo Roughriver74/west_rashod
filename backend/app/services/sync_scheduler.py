@@ -224,6 +224,134 @@ class SyncScheduler:
         finally:
             db.close()
 
+    def _should_run_ftp_import(self, settings: SyncSettings) -> bool:
+        """Check if FTP import should be run based on settings."""
+        if not settings or not settings.ftp_import_enabled:
+            return False
+
+        now = datetime.utcnow()
+
+        # If specific time is set, check if it's time to run
+        if settings.ftp_import_time_hour is not None:
+            current_hour = now.hour
+            current_minute = now.minute
+
+            if (current_hour == settings.ftp_import_time_hour and
+                current_minute == settings.ftp_import_time_minute):
+                # Check if we already ran today
+                if settings.last_ftp_import_started_at:
+                    last_import_date = settings.last_ftp_import_started_at.date()
+                    if last_import_date == now.date():
+                        return False
+                return True
+            return False
+
+        # Interval-based import
+        if settings.last_ftp_import_started_at:
+            hours_since_last_import = (now - settings.last_ftp_import_started_at).total_seconds() / 3600
+            return hours_since_last_import >= settings.ftp_import_interval_hours
+
+        # No previous import, run now
+        return True
+
+    async def _run_ftp_import(self, settings: SyncSettings) -> None:
+        """Run the FTP import task."""
+        from app.modules.fin.services.async_ftp_sync import AsyncFTPSyncService
+
+        db = self._get_db()
+        try:
+            logger.info(f"Starting scheduled FTP import (clear_existing={settings.ftp_import_clear_existing})")
+
+            # Update settings
+            try:
+                db_settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
+                if db_settings:
+                    db_settings.last_ftp_import_started_at = datetime.utcnow()
+                    db_settings.last_ftp_import_status = "IN_PROGRESS"
+                    db_settings.last_ftp_import_message = "Автоматический FTP импорт запущен"
+                    db.commit()
+            except Exception as e:
+                logger.error(f"Failed to update FTP import settings: {e}")
+                db.rollback()
+
+            # Start async FTP import
+            task_id = AsyncFTPSyncService.start_ftp_import(
+                clear_existing=settings.ftp_import_clear_existing,
+                user_id=None  # System-initiated
+            )
+
+            logger.info(f"Scheduled FTP import started with task_id: {task_id}")
+
+            # Monitor task completion in background
+            asyncio.create_task(self._monitor_ftp_task_completion(task_id))
+
+        except Exception as e:
+            logger.exception("Failed to start scheduled FTP import")
+            try:
+                db_settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
+                if db_settings:
+                    db_settings.last_ftp_import_completed_at = datetime.utcnow()
+                    db_settings.last_ftp_import_status = "FAILED"
+                    db_settings.last_ftp_import_message = f"Ошибка запуска: {str(e)[:500]}"
+                    db.commit()
+            except Exception:
+                pass
+        finally:
+            db.close()
+
+    async def _monitor_ftp_task_completion(self, task_id: str) -> None:
+        """Monitor FTP task and update SyncSettings when completed."""
+        from app.services.background_tasks import task_manager, TaskStatus
+
+        max_wait_time = 3600  # 1 hour max
+        check_interval = 5  # Check every 5 seconds
+        elapsed = 0
+
+        while elapsed < max_wait_time:
+            await asyncio.sleep(check_interval)
+            elapsed += check_interval
+
+            task = task_manager.get_task(task_id)
+            if not task:
+                logger.warning(f"FTP Task {task_id} not found")
+                break
+
+            if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
+                db = self._get_db()
+                try:
+                    db_settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
+                    if db_settings:
+                        db_settings.last_ftp_import_completed_at = datetime.utcnow()
+
+                        if task.status == TaskStatus.COMPLETED:
+                            db_settings.last_ftp_import_status = "SUCCESS"
+                            if task.result and isinstance(task.result, dict):
+                                receipts = task.result.get('receipts', {})
+                                expenses = task.result.get('expenses', {})
+                                db_settings.last_ftp_import_message = (
+                                    f"Поступления: {receipts.get('inserted', 0)} добавлено, "
+                                    f"Списания: {expenses.get('inserted', 0)} добавлено"
+                                )
+                            else:
+                                db_settings.last_ftp_import_message = task.message or "FTP импорт завершён"
+                        elif task.status == TaskStatus.FAILED:
+                            db_settings.last_ftp_import_status = "FAILED"
+                            db_settings.last_ftp_import_message = f"Ошибка: {task.error or 'Неизвестная ошибка'}"
+                        else:
+                            db_settings.last_ftp_import_status = "FAILED"
+                            db_settings.last_ftp_import_message = "FTP импорт отменён"
+
+                        db.commit()
+                        logger.info(f"Updated FTP import settings after task {task_id} completion")
+                except Exception as e:
+                    logger.error(f"Failed to update FTP import settings: {e}")
+                finally:
+                    db.close()
+                break
+
+        if elapsed >= max_wait_time:
+            logger.warning(f"FTP Task {task_id} monitoring timed out")
+
     async def _scheduler_loop(self) -> None:
         """Main scheduler loop."""
         logger.info("Sync scheduler started")
@@ -239,6 +367,10 @@ class SyncScheduler:
                 # Check and run expense sync
                 if settings and self._should_run_expense_sync(settings):
                     await self._run_expense_sync(settings)
+
+                # Check and run FTP import
+                if settings and self._should_run_ftp_import(settings):
+                    await self._run_ftp_import(settings)
 
                 # Wait before next check
                 await asyncio.sleep(self._check_interval)

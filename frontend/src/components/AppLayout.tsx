@@ -14,6 +14,11 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   ClockCircleOutlined,
+  CloudDownloadOutlined,
+  FundOutlined,
+  DollarOutlined,
+  BarChartOutlined,
+  TableOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { ReactNode, useState, useEffect } from 'react'
@@ -90,6 +95,57 @@ export default function AppLayout({ children }: AppLayoutProps) {
       key: '/sync-settings',
       icon: <ClockCircleOutlined />,
       label: 'Настройки синхронизации',
+    },
+    {
+      type: 'divider' as const,
+    },
+    {
+      key: 'fin-group',
+      type: 'group' as const,
+      label: 'Финансовый модуль',
+      children: [
+        {
+          key: '/fin',
+          icon: <FundOutlined />,
+          label: 'Фин. дашборд',
+        },
+        {
+          key: '/fin/analytics',
+          icon: <LineChartOutlined />,
+          label: 'Фин. аналитика',
+        },
+        {
+          key: '/fin/cashflow',
+          icon: <DollarOutlined />,
+          label: 'Cash Flow',
+        },
+    
+        {
+          key: '/fin/contracts',
+          icon: <FileTextOutlined />,
+          label: 'Договоры',
+        },
+        {
+          key: '/fin/kpi',
+          icon: <BarChartOutlined />,
+          label: 'KPI',
+        },
+        {
+          key: '/fin/calendar',
+          icon: <CalendarOutlined />,
+          label: 'Фин. календарь',
+        },
+        {
+          key: '/fin/turnover-balance',
+          icon: <TableOutlined />,
+          label: 'ОСВ',
+        },
+        {
+          key: '/fin/import',
+          icon: <CloudDownloadOutlined />,
+          label: 'FTP импорт',
+        },
+      ],
     },
   ]
 

@@ -27,6 +27,12 @@ class SyncSettingsUpdate(BaseModel):
     auto_sync_expenses_enabled: Optional[bool] = None
     sync_expenses_interval_hours: Optional[int] = Field(None, ge=1, le=72)
     sync_expenses_days_back: Optional[int] = Field(None, ge=1, le=365)
+    # FTP import settings
+    ftp_import_enabled: Optional[bool] = None
+    ftp_import_interval_hours: Optional[int] = Field(None, ge=1, le=72)
+    ftp_import_time_hour: Optional[int] = Field(None, ge=0, le=23)
+    ftp_import_time_minute: Optional[int] = Field(None, ge=0, le=59)
+    ftp_import_clear_existing: Optional[bool] = None
 
 
 class SyncSettingsResponse(BaseModel):
@@ -41,6 +47,18 @@ class SyncSettingsResponse(BaseModel):
     auto_sync_expenses_enabled: bool
     sync_expenses_interval_hours: int
     sync_expenses_days_back: int
+    # FTP import settings
+    ftp_import_enabled: bool
+    ftp_import_interval_hours: int
+    ftp_import_time_hour: Optional[int]
+    ftp_import_time_minute: int
+    ftp_import_clear_existing: bool
+    # Last FTP import info
+    last_ftp_import_started_at: Optional[datetime]
+    last_ftp_import_completed_at: Optional[datetime]
+    last_ftp_import_status: Optional[str]
+    last_ftp_import_message: Optional[str]
+    # Last sync info
     last_sync_started_at: Optional[datetime]
     last_sync_completed_at: Optional[datetime]
     last_sync_status: Optional[str]
@@ -316,4 +334,138 @@ def get_task_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Не удалось получить статус задачи: {str(e)}"
+        )
+
+
+@router.post("/trigger-ftp-import")
+async def trigger_ftp_import(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Manually trigger FTP import task immediately."""
+    import asyncio
+    from app.modules.fin.services.async_ftp_sync import AsyncFTPSyncService
+
+    try:
+        # Get sync settings
+        settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
+        if not settings:
+            settings = SyncSettings(id=1)
+            db.add(settings)
+            db.commit()
+            db.refresh(settings)
+
+        # Start async FTP import task
+        task_id = AsyncFTPSyncService.start_ftp_import(
+            clear_existing=settings.ftp_import_clear_existing,
+            user_id=current_user.id
+        )
+
+        # Update sync settings
+        settings.last_ftp_import_started_at = datetime.utcnow()
+        settings.last_ftp_import_status = "IN_PROGRESS"
+        settings.last_ftp_import_message = "FTP импорт запущен вручную"
+        db.commit()
+
+        logger.info(f"Manual FTP import triggered by {current_user.username}, task_id: {task_id}")
+
+        return {
+            "success": True,
+            "message": "FTP импорт запущен",
+            "task_id": task_id
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to trigger FTP import: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Не удалось запустить FTP импорт: {str(e)}"
+        )
+
+
+@router.post("/refresh-ftp-status")
+def refresh_ftp_import_status(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Refresh FTP import status based on latest completed task."""
+    from app.db.models import BackgroundTask, BackgroundTaskStatusEnum
+    import json
+
+    try:
+        settings = db.query(SyncSettings).filter(SyncSettings.id == 1).first()
+
+        if not settings:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Настройки синхронизации не найдены"
+            )
+
+        if settings.last_ftp_import_status != "IN_PROGRESS":
+            return {
+                "success": True,
+                "message": "Статус уже актуален",
+                "status": settings.last_ftp_import_status
+            }
+
+        # Find latest completed FTP import task
+        latest_task = db.query(BackgroundTask).filter(
+            BackgroundTask.task_type == "fin_ftp_import",
+            BackgroundTask.status.in_([
+                BackgroundTaskStatusEnum.COMPLETED,
+                BackgroundTaskStatusEnum.FAILED,
+                BackgroundTaskStatusEnum.CANCELLED
+            ])
+        ).order_by(BackgroundTask.created_at.desc()).first()
+
+        if not latest_task:
+            return {
+                "success": False,
+                "message": "Не найдено завершенных задач FTP импорта"
+            }
+
+        # Update settings
+        settings.last_ftp_import_completed_at = latest_task.completed_at or datetime.utcnow()
+
+        if latest_task.status == BackgroundTaskStatusEnum.COMPLETED:
+            settings.last_ftp_import_status = "SUCCESS"
+
+            if latest_task.result:
+                try:
+                    result = json.loads(latest_task.result) if isinstance(latest_task.result, str) else latest_task.result
+                    receipts = result.get('receipts', {})
+                    expenses = result.get('expenses', {})
+                    settings.last_ftp_import_message = (
+                        f"Поступления: {receipts.get('inserted', 0)} добавлено, "
+                        f"Списания: {expenses.get('inserted', 0)} добавлено"
+                    )
+                except:
+                    settings.last_ftp_import_message = latest_task.message or "FTP импорт завершён"
+            else:
+                settings.last_ftp_import_message = latest_task.message or "FTP импорт завершён"
+
+        elif latest_task.status == BackgroundTaskStatusEnum.FAILED:
+            settings.last_ftp_import_status = "FAILED"
+            settings.last_ftp_import_message = f"Ошибка: {latest_task.error or 'Неизвестная ошибка'}"
+        else:
+            settings.last_ftp_import_status = "FAILED"
+            settings.last_ftp_import_message = "FTP импорт отменён"
+
+        db.commit()
+
+        logger.info(f"FTP import status refreshed by {current_user.username}: {settings.last_ftp_import_status}")
+
+        return {
+            "success": True,
+            "message": "Статус обновлен",
+            "status": settings.last_ftp_import_status
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to refresh FTP import status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Не удалось обновить статус: {str(e)}"
         )

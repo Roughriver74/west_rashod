@@ -10,6 +10,18 @@ export interface SyncSettings {
   sync_days_back: number
   auto_sync_expenses_enabled: boolean
   sync_expenses_interval_hours: number
+  // FTP import settings
+  ftp_import_enabled: boolean
+  ftp_import_interval_hours: number
+  ftp_import_time_hour: number | null
+  ftp_import_time_minute: number
+  ftp_import_clear_existing: boolean
+  // Last FTP import info
+  last_ftp_import_started_at: string | null
+  last_ftp_import_completed_at: string | null
+  last_ftp_import_status: 'SUCCESS' | 'FAILED' | 'IN_PROGRESS' | null
+  last_ftp_import_message: string | null
+  // Last sync info
   last_sync_started_at: string | null
   last_sync_completed_at: string | null
   last_sync_status: 'SUCCESS' | 'FAILED' | 'IN_PROGRESS' | null
@@ -27,6 +39,12 @@ export interface SyncSettingsUpdate {
   sync_days_back?: number
   auto_sync_expenses_enabled?: boolean
   sync_expenses_interval_hours?: number
+  // FTP import settings
+  ftp_import_enabled?: boolean
+  ftp_import_interval_hours?: number
+  ftp_import_time_hour?: number | null
+  ftp_import_time_minute?: number
+  ftp_import_clear_existing?: boolean
 }
 
 export interface TriggerSyncResponse {
@@ -74,12 +92,24 @@ export const refreshSyncStatus = async (): Promise<{ success: boolean; message: 
   return response.data
 }
 
+export const triggerFtpImport = async (): Promise<TriggerSyncResponse> => {
+  const response = await apiClient.post('/sync-settings/trigger-ftp-import')
+  return response.data
+}
+
+export const refreshFtpStatus = async (): Promise<{ success: boolean; message: string; status?: string }> => {
+  const response = await apiClient.post('/sync-settings/refresh-ftp-status')
+  return response.data
+}
+
 const syncSettingsApi = {
   getSettings,
   updateSettings,
   triggerSyncNow,
   getTaskStatus,
   refreshSyncStatus,
+  triggerFtpImport,
+  refreshFtpStatus,
 }
 
 export default syncSettingsApi

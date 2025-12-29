@@ -518,6 +518,19 @@ class SyncSettings(Base):
     sync_expenses_interval_hours = Column(Integer, default=24, nullable=False)  # Expenses sync interval
     sync_expenses_days_back = Column(Integer, default=60, nullable=False)  # How many days back to sync expenses
 
+    # FTP import settings (Fin module)
+    ftp_import_enabled = Column(Boolean, default=False, nullable=False)
+    ftp_import_interval_hours = Column(Integer, default=24, nullable=False)  # FTP import interval (default daily)
+    ftp_import_time_hour = Column(Integer, nullable=True)  # Specific hour (0-23) or None for interval
+    ftp_import_time_minute = Column(Integer, default=0, nullable=False)  # Minute (0-59)
+    ftp_import_clear_existing = Column(Boolean, default=False, nullable=False)  # Clear data before import
+
+    # Last FTP import info
+    last_ftp_import_started_at = Column(DateTime, nullable=True)
+    last_ftp_import_completed_at = Column(DateTime, nullable=True)
+    last_ftp_import_status = Column(String(50), nullable=True)  # SUCCESS, FAILED, IN_PROGRESS
+    last_ftp_import_message = Column(Text, nullable=True)
+
     # Last sync info
     last_sync_started_at = Column(DateTime, nullable=True)
     last_sync_completed_at = Column(DateTime, nullable=True)
