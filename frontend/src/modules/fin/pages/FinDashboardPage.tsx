@@ -89,6 +89,7 @@ interface ContractItem {
   interest: number;
   totalReceived: number;
   balance: number;
+  openingBalance: number;
   paidPercent: number;
   operationsCount: number;
   lastPayment: string | null;
@@ -231,6 +232,15 @@ export default function FinDashboardPage() {
       ),
     },
     {
+      key: 'openingBalance',
+      title: 'Баланс на начало',
+      width: 150,
+      align: 'right',
+      render: (item) => (
+        <Text style={{ fontFamily: 'monospace', color: COLORS.purple }}>{formatAmount(item.openingBalance)}</Text>
+      ),
+    },
+    {
       key: 'principal',
       title: 'Тело',
       width: 120,
@@ -262,9 +272,14 @@ export default function FinDashboardPage() {
       title: 'Уплачено %',
       width: 110,
       align: 'right',
-      render: (item) => (
-        <Text style={{ fontFamily: 'monospace' }}>{`${item.paidPercent?.toFixed(1) || '0.0'}%`}</Text>
-      ),
+      render: (item) => {
+        const totalDebt = (item.openingBalance || 0) + (item.totalReceived || 0);
+        return (
+          <Text style={{ fontFamily: 'monospace' }}>
+            {totalDebt > 0 ? `${item.paidPercent?.toFixed(1) || '0.0'}%` : '-'}
+          </Text>
+        );
+      },
     },
     {
       key: 'firstReceipt',
@@ -292,6 +307,7 @@ export default function FinDashboardPage() {
     { key: 'organization', header: 'Организация' },
     { key: 'payer', header: 'Кредитор' },
     { key: 'totalReceived', header: 'Получено' },
+    { key: 'openingBalance', header: 'Баланс на начало' },
     { key: 'totalPaid', header: 'Всего выплачено' },
     { key: 'principal', header: 'Тело' },
     { key: 'interest', header: 'Проценты' },
@@ -302,12 +318,19 @@ export default function FinDashboardPage() {
     { key: 'operationsCount', header: 'Операций' },
   ], []);
 
+  // Вкладка 1: "По задолженности" - только контракты с остатком > 100 руб
   const debtSortedContracts = useMemo(
-    () => [...contracts].sort((a, b) => (b.balance || 0) - (a.balance || 0)),
+    () => contracts
+      .filter(c => (c.balance || 0) > 100)
+      .sort((a, b) => (b.balance || 0) - (a.balance || 0)),
     [contracts]
   );
+
+  // Вкладка 2: "По активности" - контракты с операциями в периоде
   const activitySortedContracts = useMemo(
-    () => [...contracts].sort((a, b) => (b.operationsCount || 0) - (a.operationsCount || 0)),
+    () => contracts
+      .filter(c => (c.operationsCount || 0) > 0 || (c.totalReceived || 0) > 0 || (c.principal || 0) > 0)
+      .sort((a, b) => (b.operationsCount || 0) - (a.operationsCount || 0)),
     [contracts]
   );
 
@@ -374,14 +397,6 @@ export default function FinDashboardPage() {
       accent: COLORS.warning,
       icon: <PercentageOutlined />,
       meta: 'Нагрузка по займам за период',
-    },
-    {
-      key: 'debt',
-      title: 'Остаток задолженности',
-      value: balances?.closingBalance ?? contractTotals.balance,
-      accent: COLORS.primary,
-      icon: <TableOutlined />,
-      meta: 'Суммарный долг по активным договорам',
     },
     {
       key: 'contracts',

@@ -14,6 +14,7 @@ from app.db.session import get_db
 from app.utils.auth import get_current_active_user
 from app.db.models import User
 from app.modules.fin.models import FinManualAdjustment, FinContract
+from app.services.cache import cache
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -260,6 +261,9 @@ def create_adjustment(
 
     logger.info(f"Created manual adjustment: id={adjustment.id}, type={adjustment.adjustment_type}, amount={adjustment.amount}")
 
+    # Очистить кэш аналитики после создания корректировки
+    cache.clear_pattern("fin:*")
+
     return ManualAdjustmentResponse(
         id=adjustment.id,
         adjustment_date=adjustment.document_date,
@@ -329,6 +333,9 @@ def update_adjustment(
 
     logger.info(f"Updated manual adjustment: id={adjustment.id}")
 
+    # Очистить кэш аналитики после обновления корректировки
+    cache.clear_pattern("fin:*")
+
     # Map backend type to frontend type for response
     frontend_type = adjustment.adjustment_type
     if adjustment.adjustment_type == 'expense':
@@ -372,5 +379,8 @@ def delete_adjustment(
     db.commit()
 
     logger.info(f"Deleted manual adjustment: id={adjustment_id}")
+
+    # Очистить кэш аналитики после удаления корректировки
+    cache.clear_pattern("fin:*")
 
     return {"message": "Adjustment deleted successfully", "id": adjustment_id}

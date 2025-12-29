@@ -46,10 +46,12 @@ class Settings(BaseSettings):
     # Batch size
     SYNC_BATCH_SIZE: int = 100
 
-    # Redis
-    USE_REDIS: bool = False
+    # Redis (для кэширования аналитики)
+    USE_REDIS: bool = True
     REDIS_HOST: str = "localhost"
-    REDIS_PORT: int = 6380
+    REDIS_PORT: int = 6382
+    REDIS_DB: int = 0
+    CACHE_ENABLED: bool = True
 
     # FTP Settings (for fin module)
     FTP_HOST: str = ""

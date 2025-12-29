@@ -404,6 +404,7 @@ export interface ContractsSummaryRecord {
   interest: number;
   totalReceived: number;
   balance: number;
+  openingBalance: number;
   paidPercent: number;
   operationsCount: number;
   lastPayment: string | null;

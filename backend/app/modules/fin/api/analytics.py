@@ -3,7 +3,7 @@ Analytics API endpoints for Fin module.
 Provides aggregated data for charts and reports.
 """
 from typing import Optional, List
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract, or_, case
@@ -13,6 +13,7 @@ from app.db.session import get_db
 from app.utils.auth import get_current_active_user
 from app.db.models import User, Organization
 from app.modules.fin.models import FinReceipt, FinExpense, FinContract, FinExpenseDetail, FinManualAdjustment
+from app.services.cache import cache, CACHE_TTL
 from app.modules.fin.schemas import (
     FinContractsSummaryRecord,
     FinContractsSummaryPagination,
@@ -86,6 +87,198 @@ def get_principal_interest_from_details(
     interest = float(interest_query.scalar() or 0)
 
     return principal, interest
+
+
+def calculate_opening_balance(
+    db: Session,
+    date_from: date,
+    org_ids: Optional[List[int]] = None,
+    contract_filter: Optional[str] = None,
+    payer_filter: Optional[List[str]] = None,
+    excluded_payer_filter: Optional[List[str]] = None
+) -> dict:
+    """
+    Расчет начального сальдо (до date_from) для оборотно-сальдовой ведомости.
+    Возвращает словарь {(account, counterparty, contract): (debit, credit)}
+
+    Для счета 67 (пассивный):
+    - Поступления (receipts) идут в КРЕДИТ (задолженность)
+    - Погашения (principal from ExpenseDetail) идут в ДЕБЕТ (уменьшение задолженности)
+    """
+    from sqlalchemy import literal
+
+    balance_dict = {}
+
+    # 1. Поступления до date_from (КРЕДИТ для счета 67)
+    receipts_before = db.query(
+        literal('01').label('account'),  # Receipts = основной долг
+        func.coalesce(FinReceipt.payer, '').label('counterparty'),
+        func.coalesce(FinContract.contract_number, '').label('contract'),
+        func.sum(FinReceipt.amount).label('amount')
+    ).outerjoin(
+        FinContract, FinReceipt.contract_id == FinContract.id
+    ).filter(
+        FinReceipt.document_date < date_from,
+        FinReceipt.payer.isnot(None)
+    )
+
+    if org_ids:
+        receipts_before = receipts_before.filter(FinReceipt.organization_id.in_(org_ids))
+
+    if contract_filter:
+        contract_list = [c.strip() for c in contract_filter.split(',') if c.strip()]
+        if contract_list:
+            receipts_before = receipts_before.filter(FinContract.contract_number.in_(contract_list))
+
+    if payer_filter:
+        receipts_before = receipts_before.filter(FinReceipt.payer.in_(payer_filter))
+
+    if excluded_payer_filter:
+        receipts_before = receipts_before.filter(~FinReceipt.payer.in_(excluded_payer_filter))
+
+    receipts_before = receipts_before.group_by(
+        FinReceipt.payer, FinContract.contract_number
+    ).all()
+
+    # 2. Расходы до date_from (ДЕБЕТ для счета 67) - используем ExpenseDetail
+    expenses_before = db.query(
+        case(
+            (FinExpenseDetail.payment_type.ilike('%погашение долга%'), literal('01')),
+            (FinExpenseDetail.payment_type.ilike('%уплата процентов%'), literal('02')),
+            else_=literal('01')
+        ).label('account'),
+        func.coalesce(FinExpense.recipient, '').label('counterparty'),
+        func.coalesce(FinContract.contract_number, '').label('contract'),
+        func.sum(FinExpenseDetail.payment_amount).label('amount')
+    ).join(
+        FinExpense, FinExpenseDetail.expense_operation_id == FinExpense.operation_id
+    ).outerjoin(
+        FinContract, FinExpense.contract_id == FinContract.id
+    ).filter(
+        FinExpense.document_date < date_from,
+        FinExpense.recipient.isnot(None)
+    )
+
+    if org_ids:
+        expenses_before = expenses_before.filter(FinExpense.organization_id.in_(org_ids))
+
+    if contract_filter:
+        contract_list = [c.strip() for c in contract_filter.split(',') if c.strip()]
+        if contract_list:
+            expenses_before = expenses_before.filter(FinContract.contract_number.in_(contract_list))
+
+    # Note: payer_filter не применяется к expenses (там recipient)
+    # excluded_payer_filter тоже не применяется к expenses
+
+    expenses_before = expenses_before.group_by(
+        FinExpenseDetail.payment_type,
+        FinExpense.recipient,
+        FinContract.contract_number
+    ).all()
+
+    # 3. Ручные корректировки до date_from - RECEIPTS
+    manual_receipts_before = db.query(
+        literal('01').label('account'),
+        func.coalesce(FinManualAdjustment.counterparty, '').label('counterparty'),
+        func.coalesce(FinManualAdjustment.contract_number, '').label('contract'),
+        func.sum(FinManualAdjustment.amount).label('amount')
+    ).filter(
+        FinManualAdjustment.adjustment_type == 'receipt',
+        FinManualAdjustment.document_date < date_from,
+        FinManualAdjustment.counterparty.isnot(None)
+    )
+
+    if org_ids:
+        manual_receipts_before = manual_receipts_before.filter(
+            FinManualAdjustment.organization_id.in_(org_ids)
+        )
+
+    if contract_filter:
+        contract_list = [c.strip() for c in contract_filter.split(',') if c.strip()]
+        if contract_list:
+            manual_receipts_before = manual_receipts_before.filter(
+                FinManualAdjustment.contract_number.in_(contract_list)
+            )
+
+    if payer_filter:
+        manual_receipts_before = manual_receipts_before.filter(
+            FinManualAdjustment.counterparty.in_(payer_filter)
+        )
+
+    if excluded_payer_filter:
+        manual_receipts_before = manual_receipts_before.filter(
+            ~FinManualAdjustment.counterparty.in_(excluded_payer_filter)
+        )
+
+    manual_receipts_before = manual_receipts_before.group_by(
+        FinManualAdjustment.counterparty,
+        FinManualAdjustment.contract_number
+    ).all()
+
+    # 4. Ручные корректировки до date_from - EXPENSES
+    manual_expenses_before = db.query(
+        case(
+            (FinManualAdjustment.payment_type == 'Погашение долга', literal('01')),
+            (FinManualAdjustment.payment_type == 'Уплата процентов', literal('02')),
+            else_=literal('01')
+        ).label('account'),
+        func.coalesce(FinManualAdjustment.counterparty, '').label('counterparty'),
+        func.coalesce(FinManualAdjustment.contract_number, '').label('contract'),
+        func.sum(FinManualAdjustment.amount).label('amount')
+    ).filter(
+        FinManualAdjustment.adjustment_type == 'expense',
+        FinManualAdjustment.document_date < date_from,
+        FinManualAdjustment.counterparty.isnot(None)
+    )
+
+    if org_ids:
+        manual_expenses_before = manual_expenses_before.filter(
+            FinManualAdjustment.organization_id.in_(org_ids)
+        )
+
+    if contract_filter:
+        contract_list = [c.strip() for c in contract_filter.split(',') if c.strip()]
+        if contract_list:
+            manual_expenses_before = manual_expenses_before.filter(
+                FinManualAdjustment.contract_number.in_(contract_list)
+            )
+
+    manual_expenses_before = manual_expenses_before.group_by(
+        FinManualAdjustment.payment_type,
+        FinManualAdjustment.counterparty,
+        FinManualAdjustment.contract_number
+    ).all()
+
+    # 5. Собрать баланс по каждой комбинации (account, counterparty, contract)
+    # Для счета 67: поступления = кредит, погашения = дебет
+
+    # Добавить поступления (КРЕДИТ для счета 67)
+    for row in receipts_before:
+        key = (row.account, row.counterparty or '', row.contract or '')
+        if key not in balance_dict:
+            balance_dict[key] = [0.0, 0.0]  # [debit, credit]
+        balance_dict[key][1] += float(row.amount)  # credit
+
+    for row in manual_receipts_before:
+        key = (row.account, row.counterparty or '', row.contract or '')
+        if key not in balance_dict:
+            balance_dict[key] = [0.0, 0.0]
+        balance_dict[key][1] += float(row.amount)  # credit
+
+    # Добавить расходы (ДЕБЕТ для счета 67)
+    for row in expenses_before:
+        key = (row.account, row.counterparty or '', row.contract or '')
+        if key not in balance_dict:
+            balance_dict[key] = [0.0, 0.0]
+        balance_dict[key][0] += float(row.amount)  # debit
+
+    for row in manual_expenses_before:
+        key = (row.account, row.counterparty or '', row.contract or '')
+        if key not in balance_dict:
+            balance_dict[key] = [0.0, 0.0]
+        balance_dict[key][0] += float(row.amount)  # debit
+
+    return balance_dict
 
 
 def get_principal_interest_by_month(
@@ -381,6 +574,14 @@ def get_credit_balances(
     Get credit balances including opening balance, period activity, and closing balance.
     Opening balance is calculated from all operations BEFORE date_from.
     """
+    # Построить ключ кэша
+    cache_key = f"fin:credit-balances:{date_from or 'none'}:{date_to or 'none'}:{organizations or 'all'}:{payers or 'all'}:{excluded_payers or 'none'}:{contracts or 'all'}"
+
+    # Попробовать получить из кэша
+    cached_result = cache.get(cache_key)
+    if cached_result:
+        return CreditBalancesResponse(**cached_result)
+
     # Parse organization filter
     org_ids = []
     if organizations:
@@ -413,8 +614,12 @@ def get_credit_balances(
 
     if date_from:
         # Prior receipts (credit money received before period)
+        # ТОЛЬКО с привязкой к контрактам для консистентности с get_contracts_summary
         prior_receipts_query = db.query(func.coalesce(func.sum(FinReceipt.amount), 0))
-        prior_receipts_query = prior_receipts_query.filter(FinReceipt.document_date < date_from)
+        prior_receipts_query = prior_receipts_query.filter(
+            FinReceipt.document_date < date_from,
+            FinReceipt.contract_id.isnot(None)  # Только receipts с привязкой к контрактам
+        )
         if org_ids:
             prior_receipts_query = prior_receipts_query.filter(FinReceipt.organization_id.in_(org_ids))
         if payer_list:
@@ -442,13 +647,15 @@ def get_credit_balances(
         prior_manual_receipts = float(manual_receipts_query.scalar() or 0)
 
         # Prior principal paid (debt repayment before period)
+        # ТОЛЬКО с привязкой к контрактам для консистентности с get_contracts_summary
         prior_principal_query = db.query(func.coalesce(func.sum(FinExpenseDetail.payment_amount), 0))
         prior_principal_query = prior_principal_query.join(
             FinExpense, FinExpenseDetail.expense_operation_id == FinExpense.operation_id
         )
         prior_principal_query = prior_principal_query.filter(
             FinExpenseDetail.payment_type.ilike('%погашение долга%'),
-            FinExpense.document_date < date_from
+            FinExpense.document_date < date_from,
+            FinExpenseDetail.contract_number.isnot(None)  # Только expenses с привязкой к контрактам
         )
         if org_ids:
             prior_principal_query = prior_principal_query.filter(FinExpense.organization_id.in_(org_ids))
@@ -481,7 +688,9 @@ def get_credit_balances(
 
     # === Calculate PERIOD ACTIVITY ===
     # Period receipts
+    # ТОЛЬКО с привязкой к контрактам для консистентности с get_contracts_summary
     period_receipts_query = db.query(func.coalesce(func.sum(FinReceipt.amount), 0))
+    period_receipts_query = period_receipts_query.filter(FinReceipt.contract_id.isnot(None))  # Только receipts с привязкой
     if date_from:
         period_receipts_query = period_receipts_query.filter(FinReceipt.document_date >= date_from)
     if date_to:
@@ -499,12 +708,14 @@ def get_credit_balances(
     period_received = float(period_receipts_query.scalar() or 0)
 
     # Period principal paid
+    # ТОЛЬКО с привязкой к контрактам для консистентности с get_contracts_summary
     period_principal_query = db.query(func.coalesce(func.sum(FinExpenseDetail.payment_amount), 0))
     period_principal_query = period_principal_query.join(
         FinExpense, FinExpenseDetail.expense_operation_id == FinExpense.operation_id
     )
     period_principal_query = period_principal_query.filter(
-        FinExpenseDetail.payment_type.ilike('%погашение долга%')
+        FinExpenseDetail.payment_type.ilike('%погашение долга%'),
+        FinExpenseDetail.contract_number.isnot(None)  # Только expenses с привязкой к контрактам
     )
     if date_from:
         period_principal_query = period_principal_query.filter(FinExpense.document_date >= date_from)
@@ -541,12 +752,14 @@ def get_credit_balances(
     manual_principal_paid = float(manual_principal_period_query.scalar() or 0)
 
     # Period interest paid
+    # ТОЛЬКО с привязкой к контрактам для консистентности с get_contracts_summary
     period_interest_query = db.query(func.coalesce(func.sum(FinExpenseDetail.payment_amount), 0))
     period_interest_query = period_interest_query.join(
         FinExpense, FinExpenseDetail.expense_operation_id == FinExpense.operation_id
     )
     period_interest_query = period_interest_query.filter(
-        FinExpenseDetail.payment_type.ilike('%уплата процентов%')
+        FinExpenseDetail.payment_type.ilike('%уплата процентов%'),
+        FinExpenseDetail.contract_number.isnot(None)  # Только expenses с привязкой к контрактам
     )
     if date_from:
         period_interest_query = period_interest_query.filter(FinExpense.document_date >= date_from)
@@ -607,7 +820,7 @@ def get_credit_balances(
 
     closing_balance = opening_balance + total_period_received - total_period_principal
 
-    return CreditBalancesResponse(
+    result = CreditBalancesResponse(
         opening_balance=opening_balance,
         period_received=total_period_received,
         period_principal_paid=total_period_principal,
@@ -615,6 +828,11 @@ def get_credit_balances(
         closing_balance=closing_balance,
         total_debt=closing_balance,
     )
+
+    # Сохранить в кэш
+    cache.set(cache_key, result.dict(), ttl=CACHE_TTL["analytics"])
+
+    return result
 
 
 @router.get("/monthly-cashflow", response_model=List[MonthlyCashFlow])
@@ -866,8 +1084,16 @@ def get_kpi_metrics(
     current_user: User = Depends(get_current_active_user),
 ):
     """
-    Get KPI metrics for the dashboard.
+    Get KPI metrics for the dashboard (с Redis кэшированием).
     """
+    # Построить ключ кэша
+    cache_key = f"fin:kpi:{date_from or 'none'}:{date_to or 'none'}:{organizations or 'all'}"
+
+    # Попробовать получить из кэша
+    cached_result = cache.get(cache_key)
+    if cached_result:
+        return KPIMetrics(**cached_result)
+
     # Parse organization filter by name
     org_ids = []
     if organizations:
@@ -900,20 +1126,39 @@ def get_kpi_metrics(
 
     # Count contracts
     total_contracts = contracts_query.count()
-    active_contracts = contracts_query.filter(FinContract.is_active == True).count()
+
+    # Active contracts (с операциями в последние 90 дней) - по документации West Fin
+    ninety_days_ago = datetime.now().date() - timedelta(days=90)
+
+    active_contracts_query = db.query(func.count(func.distinct(FinExpense.contract_id))).filter(
+        FinExpense.contract_id.isnot(None),
+        FinExpense.document_date >= ninety_days_ago
+    )
+
+    # Применить фильтр по организациям, если есть
+    if org_ids:
+        active_contracts_query = active_contracts_query.filter(
+            FinExpense.organization_id.in_(org_ids)
+        )
+
+    active_contracts = active_contracts_query.scalar() or 0
 
     # Calculate real principal and interest from FinExpenseDetail
     principal_paid, interest_paid = get_principal_interest_from_details(
         db, date_from, date_to, org_ids
     )
 
-    # Calculate ratios
+    # Calculate ratios (формулы по документации West Fin)
     repayment_velocity = (principal_paid / total_received * 100) if total_received > 0 else 0
-    payment_efficiency = (principal_paid / total_expenses * 100) if total_expenses > 0 else 0
-    avg_interest_rate = (interest_paid / principal_paid * 100) if principal_paid > 0 else 0
+    # paymentEfficiency: процент основного долга в платежах (principal / (principal + interest))
+    payment_efficiency = (principal_paid / (principal_paid + interest_paid) * 100) \
+        if (principal_paid + interest_paid) > 0 else 0
+    # avgInterestRate: средняя процентная ставка от полученных средств (interest / total_received)
+    avg_interest_rate = (interest_paid / total_received * 100) \
+        if total_received > 0 else 0
     debt_ratio = ((total_received - principal_paid) / total_received * 100) if total_received > 0 else 0
 
-    return KPIMetrics(
+    result = KPIMetrics(
         repaymentVelocity=round(repayment_velocity, 2),
         paymentEfficiency=round(payment_efficiency, 2),
         avgInterestRate=round(avg_interest_rate, 2),
@@ -925,6 +1170,11 @@ def get_kpi_metrics(
         principalPaid=principal_paid,
         interestPaid=interest_paid,
     )
+
+    # Сохранить в кэш
+    cache.set(cache_key, result.dict(), ttl=CACHE_TTL["kpi"])
+
+    return result
 
 
 # === Turnover Balance ===
@@ -961,6 +1211,14 @@ def get_turnover_balance(
     Get turnover balance sheet (Оборотно-сальдовая ведомость).
     Groups data by accounting account, counterparty, and contract.
     """
+    # Построить ключ кэша
+    cache_key = f"fin:turnover:{date_from or 'none'}:{date_to or 'none'}:{organizations or 'all'}:{payers or 'all'}:{excluded_payers or 'none'}:{contracts or 'all'}:{account_number or 'all'}"
+
+    # Попробовать получить из кэша
+    cached_result = cache.get(cache_key)
+    if cached_result:
+        return [TurnoverBalanceRow(**row) for row in cached_result]
+
     # Parse organization filter by name
     org_ids = []
     if organizations:
@@ -976,6 +1234,18 @@ def get_turnover_balance(
 
     # Parse contracts filter
     contract_list = parse_csv_list(contracts)
+
+    # Расчет opening balance (операции до date_from)
+    opening_balances = {}
+    if date_from:
+        opening_balances = calculate_opening_balance(
+            db=db,
+            date_from=date_from,
+            org_ids=org_ids if org_ids else None,
+            contract_filter=contracts,
+            payer_filter=payer_list if payer_list else None,
+            excluded_payer_filter=excluded_payer_list if excluded_payer_list else None
+        )
 
     # Get receipts grouped by counterparty and contract
     receipts_query = db.query(
@@ -1074,60 +1344,115 @@ def get_turnover_balance(
                 accounts_data[default_account]["counterparties"][counterparty]["contracts"][contract] = {"credit": 0, "debit": 0}
             accounts_data[default_account]["counterparties"][counterparty]["contracts"][contract]["debit"] += amount
 
-    # Flatten to rows
+    # Flatten to rows с учётом opening balance
     result = []
     for account, acc_data in sorted(accounts_data.items()):
-        total_credit = 0
-        total_debit = 0
+        # Собрать opening balance для account level (суммировать по всем counterparty+contract)
+        total_opening_debit = 0.0
+        total_opening_credit = 0.0
+        total_turnover_credit = 0.0
+        total_turnover_debit = 0.0
 
         for counterparty, cp_data in acc_data["counterparties"].items():
-            total_credit += cp_data["totals"]["credit"]
-            total_debit += cp_data["totals"]["debit"]
+            total_turnover_credit += cp_data["totals"]["credit"]
+            total_turnover_debit += cp_data["totals"]["debit"]
+
+            # Opening balance для каждого contract этого counterparty
+            for contract in cp_data["contracts"].keys():
+                key = (account, counterparty, contract)
+                if key in opening_balances:
+                    opening_debit, opening_credit = opening_balances[key]
+                    total_opening_debit += opening_debit
+                    total_opening_credit += opening_credit
+
+            # Opening balance для counterparty без договора (contract='')
+            key = (account, counterparty, '')
+            if key in opening_balances:
+                opening_debit, opening_credit = opening_balances[key]
+                total_opening_debit += opening_debit
+                total_opening_credit += opening_credit
+
+        # Closing balance = opening + turnover (для счета 67 пассивного: кредит - дебет)
+        closing_balance = (total_opening_credit - total_opening_debit) + \
+                         (total_turnover_credit - total_turnover_debit)
 
         # Account level row
-        balance = total_credit - total_debit
         result.append(TurnoverBalanceRow(
             account=account,
-            balanceStartDebit=0,
-            balanceStartCredit=0,
-            turnoverDebit=total_debit,
-            turnoverCredit=total_credit,
-            balanceEndDebit=abs(balance) if balance < 0 else 0,
-            balanceEndCredit=balance if balance > 0 else 0,
+            balanceStartDebit=total_opening_debit,
+            balanceStartCredit=total_opening_credit,
+            turnoverDebit=total_turnover_debit,
+            turnoverCredit=total_turnover_credit,
+            balanceEndDebit=abs(closing_balance) if closing_balance < 0 else 0,
+            balanceEndCredit=closing_balance if closing_balance > 0 else 0,
             level=0,
         ))
 
         # Counterparty level rows
         for counterparty, cp_data in sorted(acc_data["counterparties"].items()):
-            cp_balance = cp_data["totals"]["credit"] - cp_data["totals"]["debit"]
+            cp_opening_debit = 0.0
+            cp_opening_credit = 0.0
+
+            # Opening balance для всех contract этого counterparty
+            for contract in cp_data["contracts"].keys():
+                key = (account, counterparty, contract)
+                if key in opening_balances:
+                    opening_debit, opening_credit = opening_balances[key]
+                    cp_opening_debit += opening_debit
+                    cp_opening_credit += opening_credit
+
+            # Opening balance для counterparty без договора
+            key = (account, counterparty, '')
+            if key in opening_balances:
+                opening_debit, opening_credit = opening_balances[key]
+                cp_opening_debit += opening_debit
+                cp_opening_credit += opening_credit
+
+            # Closing balance для counterparty
+            cp_closing_balance = (cp_opening_credit - cp_opening_debit) + \
+                               (cp_data["totals"]["credit"] - cp_data["totals"]["debit"])
+
             result.append(TurnoverBalanceRow(
                 account=account,
                 counterparty=counterparty,
-                balanceStartDebit=0,
-                balanceStartCredit=0,
+                balanceStartDebit=cp_opening_debit,
+                balanceStartCredit=cp_opening_credit,
                 turnoverDebit=cp_data["totals"]["debit"],
                 turnoverCredit=cp_data["totals"]["credit"],
-                balanceEndDebit=abs(cp_balance) if cp_balance < 0 else 0,
-                balanceEndCredit=cp_balance if cp_balance > 0 else 0,
+                balanceEndDebit=abs(cp_closing_balance) if cp_closing_balance < 0 else 0,
+                balanceEndCredit=cp_closing_balance if cp_closing_balance > 0 else 0,
                 level=1,
             ))
 
             # Contract level rows
             for contract, ct_data in sorted(cp_data["contracts"].items()):
-                ct_balance = ct_data["credit"] - ct_data["debit"]
+                # Opening balance для конкретного contract
+                key = (account, counterparty, contract)
+                ct_opening_debit = 0.0
+                ct_opening_credit = 0.0
+                if key in opening_balances:
+                    ct_opening_debit, ct_opening_credit = opening_balances[key]
+
+                # Closing balance для contract
+                ct_closing_balance = (ct_opening_credit - ct_opening_debit) + \
+                                   (ct_data["credit"] - ct_data["debit"])
+
                 result.append(TurnoverBalanceRow(
                     account=account,
                     counterparty=counterparty,
                     parentCounterparty=counterparty,
                     contract=contract,
-                    balanceStartDebit=0,
-                    balanceStartCredit=0,
+                    balanceStartDebit=ct_opening_debit,
+                    balanceStartCredit=ct_opening_credit,
                     turnoverDebit=ct_data["debit"],
                     turnoverCredit=ct_data["credit"],
-                    balanceEndDebit=abs(ct_balance) if ct_balance < 0 else 0,
-                    balanceEndCredit=ct_balance if ct_balance > 0 else 0,
+                    balanceEndDebit=abs(ct_closing_balance) if ct_closing_balance < 0 else 0,
+                    balanceEndCredit=ct_closing_balance if ct_closing_balance > 0 else 0,
                     level=2,
                 ))
+
+    # Сохранить в кэш
+    cache.set(cache_key, [row.dict() for row in result], ttl=CACHE_TTL["turnover"])
 
     return result
 
@@ -1312,6 +1637,14 @@ def get_contracts_summary(
     """
     Get contracts summary with pagination.
     """
+    # Построить ключ кэша
+    cache_key = f"fin:contracts:{date_from or 'none'}:{date_to or 'none'}:{organizations or 'all'}:{payers or 'all'}:{excluded_payers or 'none'}:{contracts or 'all'}:{page}:{limit}:{search or 'none'}"
+
+    # Попробовать получить из кэша
+    cached_result = cache.get(cache_key)
+    if cached_result:
+        return FinContractsSummaryResponse(**cached_result)
+
     # Parse organization filter by name
     org_ids = []
     if organizations:
@@ -1523,46 +1856,59 @@ def get_contracts_summary(
             if row.contract
         }
 
-    # Get expenses grouped by contract
-    query = db.query(
-        FinContract.id.label("contract_id"),
-        FinContract.contract_number,
-        Organization.name.label("organization"),
+    # Get expenses grouped by contract (LEFT JOIN для включения контрактов без expenses в периоде)
+    # Применяем фильтры по датам только к expenses, не к контрактам
+    expense_subquery = db.query(
+        FinExpense.contract_id,
         func.coalesce(FinExpense.recipient, '').label("payer"),
         func.sum(FinExpense.amount).label("total_paid"),
         func.count(FinExpense.id).label("operations_count"),
-        func.max(FinExpense.document_date).label("last_payment")
-    ).join(
-        FinExpense, FinExpense.contract_id == FinContract.id
-    ).outerjoin(
-        Organization, FinExpense.organization_id == Organization.id
-    ).group_by(
-        FinContract.id, FinContract.contract_number, Organization.name, FinExpense.recipient
+        func.max(FinExpense.document_date).label("last_payment"),
+        FinExpense.organization_id
     )
 
+    # Фильтры для expenses
     if date_from:
-        query = query.filter(FinExpense.document_date >= date_from)
+        expense_subquery = expense_subquery.filter(FinExpense.document_date >= date_from)
     if date_to:
-        query = query.filter(FinExpense.document_date <= date_to)
+        expense_subquery = expense_subquery.filter(FinExpense.document_date <= date_to)
     if org_ids:
-        query = query.filter(FinExpense.organization_id.in_(org_ids))
+        expense_subquery = expense_subquery.filter(FinExpense.organization_id.in_(org_ids))
+    if payer_list:
+        expense_subquery = expense_subquery.filter(FinExpense.recipient.in_(payer_list))
+    if excluded_payer_list:
+        expense_subquery = expense_subquery.filter(~FinExpense.recipient.in_(excluded_payer_list))
+
+    expense_subquery = expense_subquery.group_by(
+        FinExpense.contract_id, FinExpense.recipient, FinExpense.organization_id
+    ).subquery()
+
+    # Главный запрос: ВСЕ контракты (LEFT JOIN с expenses)
+    query = db.query(
+        FinContract.id.label("contract_id"),
+        FinContract.contract_number,
+        FinContract.opening_balance,
+        Organization.name.label("organization"),
+        func.coalesce(expense_subquery.c.payer, '').label("payer"),
+        func.coalesce(expense_subquery.c.total_paid, 0).label("total_paid"),
+        func.coalesce(expense_subquery.c.operations_count, 0).label("operations_count"),
+        expense_subquery.c.last_payment.label("last_payment")
+    ).outerjoin(
+        expense_subquery, FinContract.id == expense_subquery.c.contract_id
+    ).outerjoin(
+        Organization, expense_subquery.c.organization_id == Organization.id
+    )
+
+    # Фильтры для контрактов
     if search:
         query = query.filter(FinContract.contract_number.ilike(f"%{search}%"))
-    if payer_list:
-        query = query.filter(FinExpense.recipient.in_(payer_list))
-    if excluded_payer_list:
-        query = query.filter(~FinExpense.recipient.in_(excluded_payer_list))
     if contract_list:
         query = query.filter(FinContract.contract_number.in_(contract_list))
 
-    # Get total count
-    count_query = query.subquery()
-    total = db.query(func.count()).select_from(count_query).scalar() or 0
-
-    # Apply pagination
-    query = query.order_by(func.sum(FinExpense.amount).desc())
-    skip = (page - 1) * limit
-    rows = query.offset(skip).limit(limit).all()
+    # Примечание: пагинацию делаем ПОСЛЕ фильтрации по балансу, поэтому получаем все записи
+    # Сортировка по total_paid (null в конец)
+    query = query.order_by(func.coalesce(expense_subquery.c.total_paid, 0).desc())
+    rows = query.all()  # Получаем ВСЕ контракты для последующей фильтрации по балансу
 
     # Get real principal/interest by contract from FinExpenseDetail
     contract_payments = get_principal_interest_by_contract(
@@ -1651,39 +1997,57 @@ def get_contracts_summary(
 
         first_receipt = receipt_info["first_receipt"] if receipt_info else None
 
-        # Opening balance if period is limited
-        opening_balance = 0.0
+        # Opening balance: начальное сальдо договора + движения до периода
+        contract_opening_balance = float(row.opening_balance or 0)
+        period_opening_balance = 0.0
         if date_from:
             opening_receipts = prior_receipts_map.get(contract_num, 0.0) + manual_prior_receipts_map.get(contract_num, 0.0)
             opening_principal = prior_principal_map.get(contract_num, 0.0) + manual_prior_principal_map.get(contract_num, 0.0)
-            opening_balance = opening_receipts - opening_principal
+            period_opening_balance = opening_receipts - opening_principal
 
+        opening_balance = contract_opening_balance + period_opening_balance
         balance = opening_balance + received_total - principal_total
-        paid_percent = (principal_total / received_total * 100) if received_total > 0 else 0
+
+        # Процент погашения: сколько % от ВСЕГО долга (начальный + новые поступления) было погашено
+        total_debt = opening_balance + received_total
+        paid_percent = (principal_total / total_debt * 100) if total_debt > 0 else 0
 
         # Include manual expense adjustments into totals/operations count
         total_paid_with_manual = total_paid + manual_principal + manual_interest
         operations_count = (row.operations_count or 0) + manual_expense_count_map.get(contract_num, 0)
 
-        data.append(FinContractsSummaryRecord(
-            contractId=contract_id,
-            contractNumber=contract_num,
-            organization=row.organization or "Не указано",
-            payer=row.payer or "",
-            totalPaid=total_paid_with_manual,
-            principal=principal_total,
-            interest=interest_total,
-            totalReceived=received_total,
-            balance=balance,
-            paidPercent=round(paid_percent, 2),
-            operationsCount=operations_count,
-            lastPayment=row.last_payment.isoformat() if row.last_payment else None,
-            firstReceipt=first_receipt,
-        ))
+        # Фильтр: показывать только контракты с балансом > 100 руб ИЛИ с активностью в периоде
+        # Это гарантирует, что мы показываем все активные контракты + "спящие" с долгом
+        if balance > 100 or operations_count > 0 or received_total > 0 or principal_total > 0:
+            data.append(FinContractsSummaryRecord(
+                contractId=contract_id,
+                contractNumber=contract_num,
+                organization=row.organization or "Не указано",
+                payer=row.payer or "",
+                totalPaid=total_paid_with_manual,
+                principal=principal_total,
+                interest=interest_total,
+                totalReceived=received_total,
+                balance=balance,
+                openingBalance=opening_balance,
+                paidPercent=round(paid_percent, 2),
+                operationsCount=operations_count,
+                lastPayment=row.last_payment.isoformat() if row.last_payment else None,
+                firstReceipt=first_receipt,
+            ))
 
+    # Сортировка по балансу (от большего к меньшему)
+    data = sorted(data, key=lambda x: x.balance, reverse=True)
+
+    # Применить пагинацию после фильтрации и сортировки
+    total = len(data)
     pages = (total + limit - 1) // limit if limit > 0 else 1
 
-    return FinContractsSummaryResponse(
+    # Применить skip/limit к отфильтрованным данным
+    skip = (page - 1) * limit
+    data = data[skip:skip + limit]
+
+    result = FinContractsSummaryResponse(
         data=data,
         pagination=FinContractsSummaryPagination(
             page=page,
@@ -1692,6 +2056,11 @@ def get_contracts_summary(
             pages=pages,
         )
     )
+
+    # Сохранить в кэш
+    cache.set(cache_key, result.dict(), ttl=CACHE_TTL["contracts"])
+
+    return result
 
 
 # === Payments by Date (for Calendar) ===

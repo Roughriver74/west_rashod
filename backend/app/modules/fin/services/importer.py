@@ -159,11 +159,7 @@ class FinDataImporter:
                 record.pop('bank_account', None)
                 record.pop('contract_number', None)
 
-                # Check if record exists before UPSERT
-                existing = self.db.query(FinReceipt).filter(
-                    FinReceipt.operation_id == record.get('operation_id')
-                ).first()
-
+                # UPSERT без предварительной проверки (быстрее)
                 stmt = insert(FinReceipt).values(**record)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=['operation_id'],
@@ -177,11 +173,7 @@ class FinDataImporter:
                 result = self.db.execute(stmt)
 
                 if result.rowcount > 0:
-                    if existing:
-                        updated += 1
-                    else:
-                        inserted += 1
-                # rowcount = 0 with ON CONFLICT DO UPDATE is rare, don't count as failure
+                    inserted += 1  # Считаем все успешные операции
 
             except Exception as e:
                 logger.error(f"Error upserting fin receipt {record.get('operation_id')}: {e}")
@@ -233,11 +225,7 @@ class FinDataImporter:
                 record.pop('bank_account', None)
                 record.pop('contract_number', None)
 
-                # Check if record exists before UPSERT
-                existing = self.db.query(FinExpense).filter(
-                    FinExpense.operation_id == record.get('operation_id')
-                ).first()
-
+                # UPSERT без предварительной проверки (быстрее)
                 stmt = insert(FinExpense).values(**record)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=['operation_id'],
@@ -251,11 +239,7 @@ class FinDataImporter:
                 result = self.db.execute(stmt)
 
                 if result.rowcount > 0:
-                    if existing:
-                        updated += 1
-                    else:
-                        inserted += 1
-                # rowcount = 0 with ON CONFLICT DO UPDATE is rare, don't count as failure
+                    inserted += 1  # Считаем все успешные операции
 
             except Exception as e:
                 logger.error(f"Error upserting fin expense {record.get('operation_id')}: {e}")
@@ -304,22 +288,11 @@ class FinDataImporter:
                 continue
 
             try:
-                # Check if record exists before UPSERT
-                from sqlalchemy import and_, func
-                existing = self.db.query(FinExpenseDetail).filter(
-                    and_(
-                        FinExpenseDetail.expense_operation_id == record.get('expense_operation_id'),
-                        func.coalesce(FinExpenseDetail.contract_number, '') == func.coalesce(record.get('contract_number'), ''),
-                        func.coalesce(FinExpenseDetail.payment_type, '') == func.coalesce(record.get('payment_type'), ''),
-                        func.coalesce(FinExpenseDetail.payment_amount, 0) == func.coalesce(record.get('payment_amount'), 0),
-                        func.coalesce(FinExpenseDetail.settlement_account, '') == func.coalesce(record.get('settlement_account'), '')
-                    )
-                ).first()
-
                 # Используем PostgreSQL ON CONFLICT DO UPDATE
+                # PostgreSQL сам определит конфликт, нам не нужна предварительная проверка
                 stmt = insert(FinExpenseDetail).values(**record)
 
-                # Создаем индекс для ON CONFLICT (используем те же поля что и в уникальном индексе)
+                # ON CONFLICT на уникальном индексе
                 stmt = stmt.on_conflict_do_update(
                     index_elements=[
                         'expense_operation_id',
@@ -335,13 +308,16 @@ class FinDataImporter:
                     }
                 )
 
+                # Выполняем UPSERT
+                # Примечание: rowcount будет > 0 для INSERT и UPDATE
+                # Точный подсчет inserted vs updated требует дополнительной логики,
+                # но для производительности мы считаем все как inserted
                 result = self.db.execute(stmt)
 
                 if result.rowcount > 0:
-                    if existing:
-                        updated += 1
-                    else:
-                        inserted += 1
+                    inserted += 1  # Считаем все успешные операции как inserted
+                    # Для точного подсчета нужно использовать RETURNING и сравнивать created_at,
+                    # но это замедляет импорт
 
             except Exception as e:
                 logger.error(

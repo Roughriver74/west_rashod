@@ -43,6 +43,7 @@ class FinContract(Base):
     contract_date = Column(Date, index=True)
     contract_type = Column(String(100))  # Кредит, Заем, и т.д.
     counterparty = Column(String(255))
+    opening_balance = Column(Numeric(15, 2), default=0)  # Начальное сальдо договора
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

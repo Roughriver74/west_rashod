@@ -30,6 +30,7 @@ import {
   ArrowUpOutlined,
   ArrowDownOutlined,
   CalendarOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import { format, parseISO } from 'date-fns';
@@ -39,6 +40,7 @@ import { getContractOperationsById, ContractOperation } from '../api/finApi';
 import { formatFullAmount, formatShortAmount, formatAmount } from '../utils/formatters';
 import { VirtualTable, VirtualTableColumn } from '../components/VirtualTable';
 import { ExportButton, ExportColumn } from '../components/ExportButton';
+import CreateAdjustmentModal from '../components/CreateAdjustmentModal';
 
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
@@ -59,6 +61,7 @@ export default function FinContractOperationsPage() {
   const filters = useFinFilterValues();
   const { dateFrom, dateTo } = filters;
   const [activeTab, setActiveTab] = useState<'all' | 'receipts' | 'expenses'>('all');
+  const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
 
   // Extract contract ID from query parameters
   const contractIdStr = searchParams.get('id') || '';
@@ -271,11 +274,20 @@ export default function FinContractOperationsPage() {
             </Text>
           )}
         </div>
-        <ExportButton
-          data={filteredOperations}
-          columns={exportColumns}
-          filename={`contract-${decodedContractNumber.replace(/[^a-zA-Z0-9]/g, '_')}`}
-        />
+        <Space>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setIsAdjustmentModalOpen(true)}
+          >
+            Создать корректировку
+          </Button>
+          <ExportButton
+            data={filteredOperations}
+            columns={exportColumns}
+            filename={`contract-${decodedContractNumber.replace(/[^a-zA-Z0-9]/g, '_')}`}
+          />
+        </Space>
       </div>
 
       {/* KPI Cards */}
@@ -546,6 +558,21 @@ export default function FinContractOperationsPage() {
           </Card>
         </Col>
       </Row>
+
+      {/* Adjustment Modal */}
+      <CreateAdjustmentModal
+        isOpen={isAdjustmentModalOpen}
+        onClose={() => setIsAdjustmentModalOpen(false)}
+        onSuccess={() => {
+          // Refresh contract operations
+          operationsQuery.refetch();
+        }}
+        initialData={{
+          contractNumber: decodedContractNumber,
+          counterparty: operations[0]?.payer || operations[0]?.recipient || '',
+          description: `Корректировка по договору ${decodedContractNumber}`,
+        }}
+      />
     </motion.div>
   );
 }

@@ -39,6 +39,7 @@ class FinContractBase(BaseModel):
     contract_date: Optional[date] = None
     contract_type: Optional[str] = None
     counterparty: Optional[str] = None
+    opening_balance: float = 0.0  # Начальное сальдо договора
     is_active: bool = True
 
 
@@ -389,6 +390,7 @@ class FinContractsSummaryRecord(BaseModel):
     interest: float
     totalReceived: float
     balance: float
+    openingBalance: float  # Баланс на начало периода
     paidPercent: float
     operationsCount: int
     lastPayment: Optional[str] = None

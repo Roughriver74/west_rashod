@@ -69,7 +69,7 @@ export default function UnifiedLayout() {
     { key: '/categories', icon: <TagsOutlined />, label: 'Категории' },
     { key: '/organizations', icon: <ApartmentOutlined />, label: 'Организации' },
     { key: '/categorization-rules', icon: <SlidersOutlined />, label: 'Правила категоризации' },
-    { key: '/mappings', icon: <SettingOutlined />, label: 'Сопоставления' },
+  
     { key: '/contractors', icon: <UserOutlined />, label: 'Контрагенты' },
     { key: '/sync-1c', icon: <SyncOutlined />, label: 'Синхронизация 1С' },
     { key: '/sync-settings', icon: <SettingOutlined />, label: 'Настройки синхронизации' },
@@ -110,12 +110,20 @@ export default function UnifiedLayout() {
     [mainNavItems, finNavItems]
   )
 
-  const selectedKey = useMemo(
-    () =>
-      allMenuKeys.find(key => location.pathname === key || location.pathname.startsWith(`${key}/`)) ||
-      location.pathname,
-    [allMenuKeys, location.pathname]
-  )
+  const selectedKey = useMemo(() => {
+    const matched = allMenuKeys.reduce<string | undefined>((best, key) => {
+      const isMatch = location.pathname === key || location.pathname.startsWith(`${key}/`)
+      if (!isMatch) return best
+
+      if (!best || key.length > best.length) {
+        return key
+      }
+
+      return best
+    }, undefined)
+
+    return matched || location.pathname
+  }, [allMenuKeys, location.pathname])
 
   const isFinRoute = location.pathname.startsWith('/fin')
 
