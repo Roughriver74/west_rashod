@@ -237,11 +237,31 @@ def create_adjustment(
     # Find contract if contract_number provided
     contract_id = None
     if data.contract_number:
+        # Trim whitespace
+        contract_number_clean = data.contract_number.strip()
+
+        # Try exact match first
         contract = db.query(FinContract).filter(
-            FinContract.contract_number == data.contract_number
+            FinContract.contract_number == contract_number_clean
         ).first()
+
         if contract:
             contract_id = contract.id
+            logger.info(f"Found contract (exact match): id={contract_id}, number={contract_number_clean}")
+        else:
+            # Try case-insensitive and whitespace-tolerant match
+            contract = db.query(FinContract).filter(
+                func.trim(FinContract.contract_number) == contract_number_clean
+            ).first()
+
+            if contract:
+                contract_id = contract.id
+                logger.info(f"Found contract (trimmed match): id={contract_id}, number={contract_number_clean}")
+            else:
+                logger.warning(
+                    f"Contract not found for number: '{contract_number_clean}'. "
+                    f"Adjustment will be created with contract_number but without contract_id."
+                )
 
     adjustment = FinManualAdjustment(
         contract_id=contract_id,
@@ -259,7 +279,11 @@ def create_adjustment(
     db.commit()
     db.refresh(adjustment)
 
-    logger.info(f"Created manual adjustment: id={adjustment.id}, type={adjustment.adjustment_type}, amount={adjustment.amount}")
+    logger.info(
+        f"Created manual adjustment: id={adjustment.id}, contract_id={adjustment.contract_id}, "
+        f"contract_number={adjustment.contract_number}, type={adjustment.adjustment_type}, "
+        f"payment_type={adjustment.payment_type}, amount={adjustment.amount}"
+    )
 
     # Очистить кэш аналитики после создания корректировки
     cache.clear_pattern("fin:*")

@@ -119,11 +119,18 @@ export default function FinContractOperationsPage() {
     {
       key: 'type',
       title: 'Тип',
-      width: 100,
+      width: 140,
       render: (item) => (
-        <Tag color={item.type === 'receipt' ? 'green' : 'red'}>
-          {item.type === 'receipt' ? 'Получение' : 'Списание'}
-        </Tag>
+        <Space direction="vertical" size={4}>
+          <Tag color={item.type === 'receipt' ? 'green' : 'red'}>
+            {item.type === 'receipt' ? 'Получение' : 'Списание'}
+          </Tag>
+          {item.is_adjustment && (
+            <Tag color="purple" style={{ fontSize: 10 }}>
+              Корректировка
+            </Tag>
+          )}
+        </Space>
       ),
     },
     {

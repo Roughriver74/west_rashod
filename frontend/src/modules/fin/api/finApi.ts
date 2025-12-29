@@ -586,7 +586,7 @@ export const getCreditBalances = async (params?: {
 export interface ContractOperation {
   id: number;
   type: 'receipt' | 'expense';
-  operation_id: string;
+  operation_id?: string;
   document_date: string | null;
   document_number: string | null;
   amount: number;
@@ -596,6 +596,7 @@ export interface ContractOperation {
   recipient?: string;
   payment_purpose: string | null;
   organization: string | null;
+  is_adjustment?: boolean;
 }
 
 export interface ContractOperationsResponse {

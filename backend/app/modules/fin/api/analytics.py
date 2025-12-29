@@ -2,6 +2,7 @@
 Analytics API endpoints for Fin module.
 Provides aggregated data for charts and reports.
 """
+import logging
 from typing import Optional, List
 from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, Query
@@ -21,6 +22,7 @@ from app.modules.fin.schemas import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # === Helpers ===
 
@@ -2474,12 +2476,23 @@ def get_contract_operations_by_id(
     expenses = expenses_query.order_by(FinExpense.document_date.desc()).all()
 
     # Manual adjustments for this contract
-    manual_query = db.query(FinManualAdjustment).filter(FinManualAdjustment.contract_id == contract.id)
+    # Search by contract_id OR contract_number to cover both cases
+    manual_query = db.query(FinManualAdjustment).filter(
+        or_(
+            FinManualAdjustment.contract_id == contract.id,
+            FinManualAdjustment.contract_number == decoded_contract
+        )
+    )
     if date_from:
         manual_query = manual_query.filter(FinManualAdjustment.document_date >= date_from)
     if date_to:
         manual_query = manual_query.filter(FinManualAdjustment.document_date <= date_to)
     manual_adjustments = manual_query.order_by(FinManualAdjustment.document_date.desc()).all()
+
+    logger.info(
+        f"Contract operations by ID: contract_id={contract.id}, contract_number={decoded_contract}, "
+        f"manual_adjustments_count={len(manual_adjustments)}"
+    )
 
     manual_receipts_sum = 0.0
     manual_principal_sum = 0.0
@@ -2577,6 +2590,9 @@ def get_contract_operations_by_id(
             "amount": float(receipt.amount or 0),
             "payment_purpose": receipt.payment_purpose,
             "organization": receipt.org.name if receipt.org else None,
+            "is_adjustment": False,
+            "principal": 0,
+            "interest": 0,
         })
 
     for adj in manual_adjustments:
@@ -2597,6 +2613,7 @@ def get_contract_operations_by_id(
             "interest": adj_amount if (not is_receipt and payment_bucket == "interest") else 0,
             "payment_purpose": adj.description or adj.comment or "Корректировка",
             "organization": organization_name,
+            "is_adjustment": True,
         })
 
     for expense in expenses:
@@ -2625,6 +2642,7 @@ def get_contract_operations_by_id(
             "interest": exp_interest,
             "payment_purpose": expense.payment_purpose,
             "organization": expense.org.name if expense.org else None,
+            "is_adjustment": False,
         })
 
     # Sort by date (newest first)
