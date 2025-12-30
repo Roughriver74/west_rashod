@@ -160,10 +160,11 @@ function SearchableSelect({
 }
 
 // Main Modal Component
-type AdjustmentType = 'principal' | 'interest' | 'other';
+type AdjustmentType = 'receipt' | 'expense';
 
 interface FormData {
   adjustment_type: AdjustmentType;
+  payment_type: string;  // For expense: 'Погашение долга' or 'Уплата процентов'
   amount: string;
   adjustment_date: string;
   contract_number: string;
@@ -191,7 +192,8 @@ export default function CreateAdjustmentModal({
   const queryClient = useQueryClient();
 
   const initialFormData: FormData = {
-    adjustment_type: 'principal',
+    adjustment_type: 'receipt',
+    payment_type: 'Погашение долга',
     amount: '',
     adjustment_date: new Date().toISOString().split('T')[0],
     contract_number: initialData?.contractNumber || '',
@@ -235,11 +237,12 @@ export default function CreateAdjustmentModal({
       counterparty?: string;
       contract_number?: string;
       adjustment_type: AdjustmentType;
+      payment_type?: string;
       amount: number;
       description?: string;
     }) => createAdjustment(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['fin', 'adjustments'] });
+      // Invalidate only contract-operations to prevent duplication
       queryClient.invalidateQueries({ queryKey: ['fin', 'contract-operations'] });
       if (onSuccess) onSuccess();
       handleClose();
@@ -254,14 +257,35 @@ export default function CreateAdjustmentModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const payload = {
+    const amount = parseFloat(formData.amount);
+
+    // Allow negative amounts for reversals, but not zero
+    if (!Number.isFinite(amount) || amount === 0) {
+      alert('Введите корректную сумму (не равную нулю)');
+      return;
+    }
+
+    const payload: {
+      adjustment_type: AdjustmentType;
+      amount: number;
+      adjustment_date: string;
+      contract_number?: string;
+      counterparty?: string;
+      description?: string;
+      payment_type?: string;
+    } = {
       adjustment_type: formData.adjustment_type,
-      amount: parseFloat(formData.amount),
+      amount: amount,
       adjustment_date: formData.adjustment_date,
       contract_number: formData.contract_number || undefined,
       counterparty: formData.counterparty || undefined,
       description: formData.description || undefined,
     };
+
+    // Add payment_type only for expense adjustments
+    if (formData.adjustment_type === 'expense') {
+      payload.payment_type = formData.payment_type;
+    }
 
     createMutation.mutate(payload);
   };
@@ -289,24 +313,81 @@ export default function CreateAdjustmentModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Type */}
+          {/* Adjustment Type - Big Radio Cards */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               Тип корректировки *
             </label>
-            <select
-              value={formData.adjustment_type}
-              onChange={(e) =>
-                setFormData({ ...formData, adjustment_type: e.target.value as AdjustmentType })
-              }
-              className="w-full py-2 px-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            >
-              <option value="principal">Основной долг</option>
-              <option value="interest">Проценты</option>
-              <option value="other">Прочее</option>
-            </select>
+            <div className="grid grid-cols-2 gap-3">
+              <label
+                className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                  formData.adjustment_type === 'receipt'
+                    ? 'border-green-500 bg-green-50'
+                    : 'border-gray-300 hover:border-green-300'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="adjustment_type"
+                  value="receipt"
+                  checked={formData.adjustment_type === 'receipt'}
+                  onChange={(e) =>
+                    setFormData({ ...formData, adjustment_type: e.target.value as AdjustmentType })
+                  }
+                  className="sr-only"
+                />
+                <div className="text-center">
+                  <div className="text-2xl mb-1">💰</div>
+                  <div className="font-semibold text-sm">Поступление</div>
+                  <div className="text-xs text-gray-500 mt-1">Корректировка получения</div>
+                </div>
+              </label>
+
+              <label
+                className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                  formData.adjustment_type === 'expense'
+                    ? 'border-orange-500 bg-orange-50'
+                    : 'border-gray-300 hover:border-orange-300'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="adjustment_type"
+                  value="expense"
+                  checked={formData.adjustment_type === 'expense'}
+                  onChange={(e) =>
+                    setFormData({ ...formData, adjustment_type: e.target.value as AdjustmentType })
+                  }
+                  className="sr-only"
+                />
+                <div className="text-center">
+                  <div className="text-2xl mb-1">📤</div>
+                  <div className="font-semibold text-sm">Списание</div>
+                  <div className="text-xs text-gray-500 mt-1">Корректировка расхода</div>
+                </div>
+              </label>
+            </div>
           </div>
+
+          {/* Payment Type - Only for Expense */}
+          {formData.adjustment_type === 'expense' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Тип платежа *
+              </label>
+              <select
+                value={formData.payment_type}
+                onChange={(e) =>
+                  setFormData({ ...formData, payment_type: e.target.value })
+                }
+                className="w-full py-2 px-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              >
+                <option value="Погашение долга">Погашение долга</option>
+                <option value="Уплата процентов">Уплата процентов</option>
+              </select>
+            </div>
+          )}
 
           {/* Amount */}
           <div>
@@ -316,9 +397,13 @@ export default function CreateAdjustmentModal({
               step="0.01"
               value={formData.amount}
               onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+              placeholder="Положительная увеличивает, отрицательная уменьшает"
               className="w-full py-2 px-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
             />
+            <p className="mt-1 text-xs text-gray-500">
+              💡 Для сторнирования введите отрицательную сумму (например: -50000)
+            </p>
           </div>
 
           {/* Date */}

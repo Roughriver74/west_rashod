@@ -488,8 +488,9 @@ export interface ManualAdjustment {
   adjustment_date: string;
   counterparty: string | null;
   contract_number: string | null;
-  adjustment_type: 'principal' | 'interest' | 'other';
-  amount: number;
+  adjustment_type: 'receipt' | 'expense';  // receipt = поступление, expense = списание
+  payment_type: string | null;  // For expense: 'Погашение долга', 'Уплата процентов'
+  amount: number;  // Can be positive (increase) or negative (reversal/decrease)
   description: string | null;
   created_by: string | null;
   created_at: string;
@@ -510,8 +511,9 @@ export const createAdjustment = async (data: {
   adjustment_date: string;
   counterparty?: string;
   contract_number?: string;
-  adjustment_type: 'principal' | 'interest' | 'other';
-  amount: number;
+  adjustment_type: 'receipt' | 'expense';  // receipt = поступление, expense = списание
+  payment_type?: string;  // Required for expense: 'Погашение долга' or 'Уплата процентов'
+  amount: number;  // Can be positive (increase) or negative (reversal/decrease)
   description?: string;
 }): Promise<ManualAdjustment> => {
   const response = await finApi.post('/adjustments/', data);
